@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mirante · mapa ao vivo</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0b0f14;--panel:rgba(14,19,26,.92);--line:#223040;--ink:#e6edf3;--mute:#8b9bab;--cam:#3ddc97;--fly:#ffc857;--ship:#4cc9f0;--quake:#ff5d5d;--evt:#ff8c42;--osm:#c77dff;--pow:#f72585}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:15px/1.45 Inter,system-ui,sans-serif;overflow:hidden}
+#map{position:fixed;inset:0;background:#0b0f14}
+.top{position:fixed;z-index:1000;left:0;right:0;top:0;padding:calc(env(safe-area-inset-top) + 10px) 10px 0;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.bar{display:flex;gap:8px;align-items:center;pointer-events:auto}
+.brand{font:700 18px/1 'Space Grotesk',sans-serif;letter-spacing:-.01em;background:var(--panel);border:1px solid var(--line);padding:11px 13px;border-radius:12px;white-space:nowrap}
+.brand b{color:var(--cam)}
+form.search{flex:1;display:flex;background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+form.search input{flex:1;min-width:0;background:none;border:0;color:var(--ink);font:16px Inter,sans-serif;padding:10px 12px;outline:none}
+button{font:600 14px Inter,sans-serif;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;min-height:42px;cursor:pointer}
+button:focus-visible,input:focus-visible{outline:2px solid var(--cam);outline-offset:1px}
+form.search button{border:0;border-left:1px solid var(--line);border-radius:0}
+.chips{display:flex;gap:6px;overflow-x:auto;pointer-events:auto;padding-bottom:4px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;display:flex;align-items:center;gap:7px;padding:8px 11px;border-radius:999px;font-size:13px;min-height:38px;opacity:.55}
+.chip.on{opacity:1}
+.chip i{width:9px;height:9px;border-radius:50%;background:var(--c);box-shadow:0 0 8px var(--c)}
+.chip small{color:var(--mute);font-weight:400}
+.chip small.err{color:var(--quake)}
+.sheet{position:fixed;z-index:1001;left:0;right:0;bottom:0;max-height:62vh;background:var(--panel);border-top:1px solid var(--line);border-radius:16px 16px 0 0;padding:14px 14px calc(env(safe-area-inset-bottom) + 14px);transform:translateY(105%);transition:transform .25s;overflow:auto;backdrop-filter:blur(8px)}
+.sheet.open{transform:none}
+@media(min-width:760px){.sheet{left:auto;right:12px;bottom:12px;width:420px;border-radius:16px;border:1px solid var(--line);max-height:80vh}}
+.sheet h2{font:700 18px/1.2 'Space Grotesk',sans-serif;margin:0 0 4px;padding-right:44px}
+.sheet .meta{color:var(--mute);font-size:13px;margin-bottom:10px}
+.sheet .x{position:absolute;top:10px;right:10px;width:40px;padding:0}
+.shot{width:100%;border-radius:10px;background:#000;display:block;min-height:120px;object-fit:contain}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.row a{color:var(--cam);font-weight:600;text-decoration:none;padding:10px 0}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px}
+.grid figure{margin:0}.grid figcaption{font-size:12px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.empty{color:var(--mute);font-size:14px}
+.hint{position:fixed;z-index:999;left:50%;bottom:calc(env(safe-area-inset-bottom) + 16px);transform:translateX(-50%);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 14px;font-size:13px;color:var(--mute);white-space:nowrap;pointer-events:none;transition:opacity .3s}
+.plane{color:var(--fly);font-size:15px;line-height:1;text-shadow:0 0 4px #000;transform-origin:center}
+.camdot{width:10px;height:10px;border-radius:50%;background:var(--cam);border:2px solid #0b0f14;box-shadow:0 0 6px var(--cam)}
+.marker-cluster{background:rgba(61,220,151,.18)!important}
+.marker-cluster div{background:rgba(61,220,151,.85)!important;color:#06140e;font:700 12px Inter,sans-serif}
+.leaflet-container{font:inherit;background:#0b0f14}
+.leaflet-control-attribution{background:rgba(11,15,20,.7)!important;color:var(--mute)!important;font-size:10px}
+.leaflet-control-attribution a{color:var(--mute)!important}
+.leaflet-control-zoom{display:none}
+.leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--panel);color:var(--ink)}
+@media(prefers-reduced-motion:reduce){.sheet{transition:none}}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div class="top">
+  <div class="bar">
+    <div class="brand">Mir<b>a</b>nte</div>
+    <form class="search" id="search"><input id="q" placeholder="Buscar cidade ou local" autocomplete="off" aria-label="Buscar local"><button aria-label="Buscar">Ir</button></form>
+    <button id="favbtn" aria-label="Câmeras favoritas">★</button>
+  </div>
+  <div class="chips" id="chips"></div>
+</div>
+<div class="hint" id="hint">Carregando…</div>
+<section class="sheet" id="sheet" aria-live="polite"><button class="x" id="close" aria-label="Fechar">✕</button><div id="sheetBody"></div></section>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script>
+{
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const store = {get(k,d){try{return JSON.parse(localStorage.getItem(k)) ?? d}catch{return d}}, set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}};
+
+const view = store.get('mirante:view', {c:[-26.23,-52.67], z:5});
+const map = L.map('map', {zoomControl:false, worldCopyJump:true, preferCanvas:true}).setView(view.c, view.z);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  maxZoom:19, subdomains:'abcd',
+  attribution:'© OpenStreetMap · © CARTO · dados: órgãos de trânsito, adsb.lol/OpenSky, Digitraffic, USGS, NASA EONET'
+}).addTo(map);
+map.on('moveend', () => store.set('mirante:view', {c:[map.getCenter().lat, map.getCenter().lng], z:map.getZoom()}));
+
+const hint = $('#hint');
+let hintT; const say = (t, ms=3500) => { hint.textContent = t; hint.style.opacity = 1; clearTimeout(hintT); if (ms) hintT = setTimeout(() => hint.style.opacity = 0, ms); };
+
+/* ---------- painel inferior ---------- */
+const sheet = $('#sheet'), body = $('#sheetBody');
+let camTimer;
+function openSheet(html){ body.innerHTML = html; sheet.classList.add('open'); }
+function closeSheet(){ sheet.classList.remove('open'); clearInterval(camTimer); }
+$('#close').onclick = closeSheet;
+const bust = u => u + (u.includes('?') ? '&' : '?') + '_=' + Date.now();
+
+let favs = store.get('mirante:favs', []);
+function showCam(c){
+  const [lat, lon, name, img, src, video] = c;
+  const isFav = favs.some(f => f[3] === img);
+  openSheet(`<h2>${esc(name)}</h2><div class="meta">${esc(src)} · ${lat.toFixed(4)}, ${lon.toFixed(4)} · atualiza a cada 15 s</div>
+    <img class="shot" id="shot" alt="Imagem da câmera ${esc(name)}" src="${esc(bust(img))}">
+    <div class="row"><button id="fav">${isFav ? '★ Remover dos favoritos' : '☆ Favoritar'}</button>
+    <a href="${esc(img)}" target="_blank" rel="noopener">Abrir imagem</a>${video ? ` <a href="${esc(video)}" target="_blank" rel="noopener">Vídeo</a>` : ''}</div>`);
+  const shot = $('#shot');
+  shot.onerror = () => { shot.alt = 'Imagem indisponível agora'; };
+  clearInterval(camTimer); camTimer = setInterval(() => { shot.src = bust(img); }, 15000);
+  $('#fav').onclick = () => {
+    favs = isFav ? favs.filter(f => f[3] !== img) : [...favs, c];
+    store.set('mirante:favs', favs); showCam(c);
+  };
+}
+function showFavs(){
+  clearInterval(camTimer);
+  if (!favs.length) return openSheet('<h2>Favoritas</h2><p class="empty">Toque numa câmera e use ☆ Favoritar para vê-las todas juntas aqui.</p>');
+  openSheet(`<h2>Favoritas</h2><div class="meta">${favs.length} câmeras · atualiza a cada 20 s</div><div class="grid">${
+    favs.map((f,i) => `<figure><img class="shot" data-i="${i}" alt="${esc(f[2])}" src="${esc(bust(f[3]))}"><figcaption>${esc(f[2])}</figcaption></figure>`).join('')}</div>`);
+  body.querySelectorAll('img[data-i]').forEach(im => im.onclick = () => { const f = favs[im.dataset.i]; map.setView([f[0], f[1]], 14); showCam(f); });
+  camTimer = setInterval(() => body.querySelectorAll('img[data-i]').forEach(im => im.src = bust(favs[im.dataset.i][3])), 20000);
+}
+$('#favbtn').onclick = showFavs;
+
+/* ---------- camadas ---------- */
+const LAYERS = [
+  {id:'cam',   name:'Câmeras',     c:'var(--cam)',   on:true},
+  {id:'fly',   name:'Voos',        c:'var(--fly)',   on:true},
+  {id:'ship',  name:'Navios',      c:'var(--ship)',  on:false},
+  {id:'quake', name:'Terremotos',  c:'var(--quake)', on:true},
+  {id:'evt',   name:'Eventos',     c:'var(--evt)',   on:true},
+  {id:'osm',   name:'Câmeras OSM', c:'var(--osm)',   on:false},
+  {id:'pow',   name:'Usinas',      c:'var(--pow)',   on:false},
+];
+const state = store.get('mirante:layers', {});
+LAYERS.forEach(l => { if (l.id in state) l.on = state[l.id]; l.group = l.id === 'cam'
+  ? L.markerClusterGroup({chunkedLoading:true, maxClusterRadius:50, showCoverageOnHover:false})
+  : L.layerGroup(); });
+const byId = Object.fromEntries(LAYERS.map(l => [l.id, l]));
+
+$('#chips').innerHTML = LAYERS.map(l => `<button class="chip" id="chip-${l.id}" style="--c:${l.c}" aria-pressed="false"><i></i>${l.name} <small id="st-${l.id}"></small></button>`).join('');
+function setStatus(id, txt, err){ const s = $('#st-' + id); s.textContent = txt; s.className = err ? 'err' : ''; }
+function paint(l){ const b = $('#chip-' + l.id); b.classList.toggle('on', l.on); b.setAttribute('aria-pressed', l.on); }
+LAYERS.forEach(l => {
+  paint(l);
+  if (l.on) l.group.addTo(map);
+  $('#chip-' + l.id).onclick = () => {
+    l.on = !l.on; paint(l);
+    l.on ? (l.group.addTo(map), refresh(l)) : map.removeLayer(l.group);
+    state[l.id] = l.on; store.set('mirante:layers', state);
+  };
+});
+
+async function getJSON(url, opts){ const r = await fetch(url, opts); if (!r.ok) throw new Error(r.status); return r.json(); }
+const fmt = n => n.toLocaleString('pt-BR');
+
+/* Câmeras (lista gerada pela GitHub Action) */
+let camsLoaded = false;
+async function loadCams(){
+  const l = byId.cam; setStatus('cam', '…');
+  try {
+    const cams = await getJSON('data/cameras.json', {cache:'no-cache'});
+    if (!cams.length) { setStatus('cam', 'aguardando Action', true); return; }
+    const icon = L.divIcon({className:'', html:'<div class="camdot"></div>', iconSize:[10,10]});
+    l.group.addLayers(cams.map(c => L.marker([c[0], c[1]], {icon, title:c[2]}).on('click', () => showCam(c))));
+    camsLoaded = true; setStatus('cam', fmt(cams.length));
+  } catch(e){ setStatus('cam', 'erro', true); }
+}
+
+/* Voos: tenta adsb.lol, depois airplanes.live, depois OpenSky */
+async function loadFlights(){
+  const l = byId.fly;
+  if (map.getZoom() < 6) { l.group.clearLayers(); setStatus('fly', 'aproxime o mapa'); return; }
+  const c = map.getCenter(), b = map.getBounds();
+  const radius = Math.min(250, Math.ceil(c.distanceTo(b.getNorthEast()) / 1852));
+  const point = base => getJSON(`${base}/v2/point/${c.lat.toFixed(3)}/${c.lng.toFixed(3)}/${radius}`)
+    .then(d => (d.ac || []).map(a => ({id:a.hex, cs:(a.flight||a.hex||'').trim(), lat:a.lat, lon:a.lon, alt:a.alt_baro, spd:a.gs, trk:a.track ?? a.true_heading ?? 0, type:a.t, reg:a.r})));
+  const opensky = () => getJSON(`https://opensky-network.org/api/states/all?lamin=${b.getSouth()}&lomin=${b.getWest()}&lamax=${b.getNorth()}&lomax=${b.getEast()}`)
+    .then(d => (d.states || []).map(s => ({id:s[0], cs:(s[1]||s[0]).trim(), lat:s[6], lon:s[5], alt:s[7] != null ? Math.round(s[7]*3.281) : null, spd:s[9] != null ? Math.round(s[9]*1.944) : null, trk:s[10] || 0, type:s[2]})));
+  let list = null, used = '';
+  for (const [name, fn] of [['adsb.lol', () => point('https://api.adsb.lol')], ['airplanes.live', () => point('https://api.airplanes.live')], ['OpenSky', opensky]]) {
+    try { list = await fn(); used = name; break; } catch(e){}
+  }
+  if (!list) { setStatus('fly', 'fontes indisponíveis', true); return; }
+  l.group.clearLayers();
+  list.filter(a => a.lat != null && a.lon != null).forEach(a => {
+    const icon = L.divIcon({className:'', iconSize:[18,18], html:`<div class="plane" style="transform:rotate(${a.trk - 45}deg)">✈</div>`});
+    L.marker([a.lat, a.lon], {icon}).bindPopup(`<b>${esc(a.cs || a.id)}</b><br>${a.type ? esc(a.type) + '<br>' : ''}${a.reg ? esc(a.reg) + '<br>' : ''}Altitude: ${a.alt === 'ground' ? 'no solo' : a.alt != null ? fmt(a.alt) + ' ft' : '—'}<br>Velocidade: ${a.spd != null ? Math.round(a.spd) + ' kt' : '—'}<br><a href="https://globe.adsbexchange.com/?icao=${esc(a.id)}" target="_blank" rel="noopener">Ver no ADS-B Exchange</a>`).addTo(l.group);
+  });
+  setStatus('fly', `${fmt(list.length)} · ${used}`);
+}
+
+/* Navios: Digitraffic (cobre o Báltico; AIS aberto global exige chave) */
+let shipCache = null, shipAt = 0;
+async function loadShips(){
+  const l = byId.ship;
+  try {
+    if (!shipCache || Date.now() - shipAt > 60000) { shipCache = (await getJSON('https://meri.digitraffic.fi/api/ais/v1/locations', {headers:{'Digitraffic-User':'Mirante/1.0'}})).features || []; shipAt = Date.now(); }
+    const b = map.getBounds().pad(0.2); l.group.clearLayers(); let n = 0;
+    for (const f of shipCache) {
+      const [lon, lat] = f.geometry.coordinates; if (!b.contains([lat, lon]) || n > 3000) continue; n++;
+      const p = f.properties;
+      L.circleMarker([lat, lon], {radius:4, color:'#0b0f14', weight:1, fillColor:'#4cc9f0', fillOpacity:.9})
+        .bindPopup(`<b>MMSI ${p.mmsi ?? f.mmsi}</b><br>Velocidade: ${p.sog ?? '—'} nós<br>Rumo: ${p.cog ?? '—'}°<br><a href="https://www.myshiptracking.com/?mmsi=${p.mmsi ?? f.mmsi}" target="_blank" rel="noopener">Detalhes</a>`).addTo(l.group);
+    }
+    setStatus('ship', n ? `${fmt(n)} na tela` : 'só no Báltico');
+  } catch(e){ setStatus('ship', 'erro', true); }
+}
+
+/* Terremotos: USGS última semana, M2.5+ */
+async function loadQuakes(){
+  const l = byId.quake;
+  try {
+    const d = await getJSON('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_week.geojson');
+    l.group.clearLayers();
+    d.features.forEach(f => { const [lon, lat, depth] = f.geometry.coordinates, p = f.properties;
+      L.circleMarker([lat, lon], {radius:Math.max(3, p.mag * 2.2), color:'#ff5d5d', weight:1, fillColor:'#ff5d5d', fillOpacity:.35})
+        .bindPopup(`<b>M ${p.mag.toFixed(1)}</b> · ${esc(p.place)}<br>${new Date(p.time).toLocaleString('pt-BR')}<br>Profundidade: ${Math.round(depth)} km<br><a href="${esc(p.url)}" target="_blank" rel="noopener">USGS</a>`).addTo(l.group); });
+    setStatus('quake', fmt(d.features.length) + ' em 7 dias');
+  } catch(e){ setStatus('quake', 'erro', true); }
+}
+
+/* Eventos naturais: NASA EONET (incêndios, tempestades, vulcões…) */
+const EVT_PT = {wildfires:'Incêndio', severeStorms:'Tempestade', volcanoes:'Vulcão', seaLakeIce:'Gelo', floods:'Enchente', earthquakes:'Terremoto', drought:'Seca', dustHaze:'Poeira/fumaça', landslides:'Deslizamento', snow:'Neve', tempExtremes:'Temperatura extrema'};
+async function loadEvents(){
+  const l = byId.evt;
+  try {
+    const d = await getJSON('https://eonet.gsfc.nasa.gov/api/v3/events?status=open&days=30');
+    l.group.clearLayers();
+    d.events.forEach(e => { const g = e.geometry[e.geometry.length - 1]; if (!g || g.type !== 'Point') return;
+      const [lon, lat] = g.coordinates, cat = e.categories[0]?.id;
+      L.circleMarker([lat, lon], {radius:6, color:'#0b0f14', weight:1, fillColor:'#ff8c42', fillOpacity:.9})
+        .bindPopup(`<b>${esc(EVT_PT[cat] || e.categories[0]?.title || 'Evento')}</b><br>${esc(e.title)}<br>${new Date(g.date).toLocaleDateString('pt-BR')}${e.sources[0] ? `<br><a href="${esc(e.sources[0].url)}" target="_blank" rel="noopener">Fonte</a>` : ''}`).addTo(l.group); });
+    setStatus('evt', fmt(d.events.length) + ' ativos');
+  } catch(e){ setStatus('evt', 'erro', true); }
+}
+
+/* OpenStreetMap via Overpass: câmeras mapeadas pela comunidade e usinas */
+async function overpass(id, query, minZoom, draw){
+  const l = byId[id];
+  if (map.getZoom() < minZoom) { l.group.clearLayers(); setStatus(id, 'aproxime o mapa'); return; }
+  const b = map.getBounds(), bbox = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()].map(n => n.toFixed(4)).join(',');
+  setStatus(id, '…');
+  try {
+    const d = await getJSON('https://overpass-api.de/api/interpreter', {method:'POST', body:'data=' + encodeURIComponent(`[out:json][timeout:25];${query.replaceAll('BBOX', bbox)}`)});
+    l.group.clearLayers();
+    d.elements.forEach(el => { const lat = el.lat ?? el.center?.lat, lon = el.lon ?? el.center?.lon; if (lat != null) draw(el, lat, lon).addTo(l.group); });
+    setStatus(id, fmt(d.elements.length));
+  } catch(e){ setStatus(id, 'Overpass ocupado', true); }
+}
+const loadOsm = () => overpass('osm', 'node["man_made"="surveillance"](BBOX);out 1500;', 13, (el, lat, lon) =>
+  L.circleMarker([lat, lon], {radius:4, color:'#0b0f14', weight:1, fillColor:'#c77dff', fillOpacity:.9})
+    .bindPopup(`<b>Câmera mapeada no OSM</b><br>Tipo: ${esc(el.tags?.['surveillance:type'] || el.tags?.surveillance || '—')}<br>${el.tags?.operator ? 'Operador: ' + esc(el.tags.operator) + '<br>' : ''}<small>Sem imagem pública</small>`));
+const loadPow = () => overpass('pow', 'nwr["power"="plant"](BBOX);out center 800;', 7, (el, lat, lon) =>
+  L.circleMarker([lat, lon], {radius:5, color:'#0b0f14', weight:1, fillColor:'#f72585', fillOpacity:.9})
+    .bindPopup(`<b>${esc(el.tags?.name || 'Usina')}</b><br>Fonte: ${esc(el.tags?.['plant:source'] || '—')}<br>${el.tags?.['plant:output:electricity'] ? 'Potência: ' + esc(el.tags['plant:output:electricity']) : ''}`));
+
+const LOADERS = {cam:() => camsLoaded || loadCams(), fly:loadFlights, ship:loadShips, quake:loadQuakes, evt:loadEvents, osm:loadOsm, pow:loadPow};
+function refresh(l){ if (l.on) LOADERS[l.id](); }
+
+/* atualização: voos a cada 15 s, navios a cada 60 s; ao mover o mapa recarrega o que depende da área */
+let moveT;
+map.on('moveend', () => { clearTimeout(moveT); moveT = setTimeout(() => ['fly','ship','osm','pow'].forEach(id => refresh(byId[id])), 600); });
+setInterval(() => { if (!document.hidden) refresh(byId.fly); }, 15000);
+setInterval(() => { if (!document.hidden) refresh(byId.ship); }, 60000);
+setInterval(() => { if (!document.hidden) { refresh(byId.quake); refresh(byId.evt); } }, 600000);
+
+/* busca de local (Nominatim) */
+$('#search').onsubmit = async e => {
+  e.preventDefault(); const q = $('#q').value.trim(); if (!q) return;
+  try {
+    const r = await getJSON('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(q));
+    if (!r.length) return say('Local não encontrado');
+    const bb = r[0].boundingbox.map(Number);
+    map.fitBounds([[bb[0], bb[2]], [bb[1], bb[3]]], {maxZoom:13}); $('#q').blur();
+  } catch(err){ say('Busca indisponível agora'); }
+};
+
+LAYERS.forEach(refresh);
+say('Toque nos botões para ligar ou desligar camadas', 5000);
+}
+</script>
+</body>
+</html>
