@@ -1,14 +1,14 @@
 {
- "updated": "2026-11-23 23:25 UTC",
+ "updated": "2026-11-23 23:55 UTC",
  "cameras": {
   "tfl": 889,
   "drivebc": 1062,
   "iowa": 1253,
-  "digitraffic": 810,
   "nyc": 488,
-  "caltrans": 3445,
+  "digitraffic": 810,
   "road511": 0,
-  "nzta": 244,
+  "caltrans": 3445,
+  "nzta": 241,
   "antt": 0
  },
  "probe": {
