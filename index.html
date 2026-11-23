@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#0b0f14;--panel:rgba(14,19,26,.92);--line:#223040;--ink:#e6edf3;--mute:#8b9bab;--cam:#3ddc97;--fly:#ffc857;--ship:#4cc9f0;--quake:#ff5d5d;--evt:#ff8c42;--osm:#c77dff;--pow:#f72585}
+:root{--bg:#0b0f14;--panel:rgba(14,19,26,.92);--line:#223040;--ink:#e6edf3;--mute:#8b9bab;--cam:#3ddc97;--fly:#ffc857;--ship:#4cc9f0;--quake:#ff5d5d;--evt:#ff8c42;--osm:#c77dff;--pow:#f72585;--sat:#f1f5f9;--stl:#94a3b8;--cab:#2ec4b6;--apt:#e9c46a;--war:#e63946}
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:15px/1.45 Inter,system-ui,sans-serif;overflow:hidden}
 #map{position:fixed;inset:0;background:#0b0f14}
@@ -62,6 +62,7 @@ form.search button{border:0;border-left:1px solid var(--line);border-radius:0}
     <div class="brand">Mir<b>a</b>nte</div>
     <form class="search" id="search"><input id="q" placeholder="Buscar cidade ou local" autocomplete="off" aria-label="Buscar local"><button aria-label="Buscar">Ir</button></form>
     <button id="favbtn" aria-label="Câmeras favoritas">★</button>
+    <button id="infobtn" aria-label="Fontes e créditos">ⓘ</button>
   </div>
   <div class="chips" id="chips"></div>
 </div>
@@ -70,6 +71,7 @@ form.search button{border:0;border-left:1px solid var(--line);border-radius:0}
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/satellite.js@4.1.4/dist/satellite.min.js"></script>
 <script>
 {
 const $ = s => document.querySelector(s);
@@ -133,6 +135,11 @@ const LAYERS = [
   {id:'evt',   name:'Eventos',     c:'var(--evt)',   on:true},
   {id:'osm',   name:'Câmeras OSM', c:'var(--osm)',   on:false},
   {id:'pow',   name:'Usinas',      c:'var(--pow)',   on:false},
+  {id:'sat',   name:'Satélites',   c:'var(--sat)',   on:true},
+  {id:'stl',   name:'Starlink',    c:'var(--stl)',   on:false},
+  {id:'cab',   name:'Cabos submarinos', c:'var(--cab)', on:false},
+  {id:'apt',   name:'Aeroportos',  c:'var(--apt)',   on:false},
+  {id:'war',   name:'Frente Ucrânia', c:'var(--war)', on:false},
 ];
 const state = store.get('mirante:layers', {});
 LAYERS.forEach(l => { if (l.id in state) l.on = state[l.id]; l.group = l.id === 'cam'
@@ -171,26 +178,31 @@ async function loadCams(){
 
 /* Voos. adsb.lol e airplanes.live não liberam CORS: passam pelo proxy (worker/flights-proxy.js) se PROXY estiver preenchido. */
 const PROXY = '';
+/* Na Vercel existe /api/flights no mesmo domínio; no GitHub Pages não. Testa uma vez. */
+let hasApi = false;
+const apiCheck = fetch('api/flights?url=' + encodeURIComponent('https://api.airplanes.live/v2/point/0/0/1'))
+  .then(r => { hasApi = r.ok && (r.headers.get('content-type') || '').includes('json'); }).catch(() => {});
 const clampLon = x => Math.max(-180, Math.min(180, x)), clampLat = x => Math.max(-90, Math.min(90, x));
 async function loadFlights(){
+  await apiCheck;
   const l = byId.fly;
   if (map.getZoom() < 6) { l.group.clearLayers(); setStatus('fly', 'aproxime o mapa'); return; }
   const b = map.getBounds(), c = b.getCenter();
   const lat = c.lat, lon = ((c.lng + 540) % 360) - 180;
   const radius = Math.max(10, Math.min(250, Math.ceil(c.distanceTo(b.getNorthEast()) / 1852)));
-  const via = u => PROXY ? `${PROXY}?url=${encodeURIComponent(u)}` : u;
+  const via = u => (PROXY || hasApi) ? `${PROXY || 'api/flights'}?url=${encodeURIComponent(u)}` : u;
   const readsb = url => getJSON(via(url)).then(d => (d.ac || d.aircraft || []).map(a => ({id:a.hex, cs:(a.flight||a.hex||'').trim(), lat:a.lat, lon:a.lon, alt:a.alt_baro, spd:a.gs, trk:a.track ?? a.true_heading ?? 0, type:a.t, reg:a.r})));
   const w = clampLon(b.getWest()), e = clampLon(b.getEast());
   const opensky = () => getJSON(`https://opensky-network.org/api/states/all?lamin=${clampLat(b.getSouth()).toFixed(3)}&lomin=${(w < e ? w : -180).toFixed(3)}&lamax=${clampLat(b.getNorth()).toFixed(3)}&lomax=${(w < e ? e : 180).toFixed(3)}`)
     .then(d => (d.states || []).map(s => ({id:s[0], cs:(s[1]||s[0]).trim(), lat:s[6], lon:s[5], alt:s[7] != null ? Math.round(s[7]*3.281) : null, spd:s[9] != null ? Math.round(s[9]*1.944) : null, trk:s[10] || 0, type:s[2]})));
   const chain = [
-    ...(PROXY ? [['adsb.lol', () => readsb(`https://api.adsb.lol/v2/point/${lat.toFixed(3)}/${lon.toFixed(3)}/${radius}`)]] : []),
+    ...((PROXY || hasApi) ? [['adsb.lol', () => readsb(`https://api.adsb.lol/v2/point/${lat.toFixed(3)}/${lon.toFixed(3)}/${radius}`)]] : []),
     ['airplanes.live', () => readsb(`https://api.airplanes.live/v2/point/${lat.toFixed(3)}/${lon.toFixed(3)}/${radius}`)],
     ['OpenSky', opensky],
   ];
   let list = null, used = '';
   for (const [name, fn] of chain) { try { list = await fn(); used = name; break; } catch(err){} }
-  if (!list) { setStatus('fly', PROXY ? 'fontes indisponíveis' : 'precisa do proxy', true); return; }
+  if (!list) { setStatus('fly', (PROXY || hasApi) ? 'fontes indisponíveis' : 'precisa do proxy', true); return; }
   l.group.clearLayers();
   list.filter(a => a.lat != null && a.lon != null).forEach(a => {
     const icon = L.divIcon({className:'', iconSize:[18,18], html:`<div class="plane" style="transform:rotate(${a.trk - 45}deg)">✈</div>`});
@@ -264,7 +276,83 @@ const loadPow = () => overpass('pow', 'nwr["power"="plant"](BBOX);out center 800
   L.circleMarker([lat, lon], {radius:5, color:'#0b0f14', weight:1, fillColor:'#f72585', fillOpacity:.9})
     .bindPopup(`<b>${esc(el.tags?.name || 'Usina')}</b><br>Fonte: ${esc(el.tags?.['plant:source'] || '—')}<br>${el.tags?.['plant:output:electricity'] ? 'Potência: ' + esc(el.tags['plant:output:electricity']) : ''}`));
 
-const LOADERS = {cam:() => camsLoaded || loadCams(), fly:loadFlights, ship:loadShips, quake:loadQuakes, evt:loadEvents, osm:loadOsm, pow:loadPow};
+
+/* Satélites: TLE da CelesTrak (baixado pela Action) propagado com SGP4 no navegador */
+let sats = null, satTick, satTrack = null;
+async function loadSats(){
+  if (!sats) {
+    try {
+      const raw = await getJSON('data/satellites.json', {cache:'no-cache'});
+      sats = raw.map(([name, l1, l2, g]) => { try { return {name, g, rec:satellite.twoline2satrec(l1, l2), m:null}; } catch(e){ return null; } }).filter(Boolean);
+    } catch(e){ setStatus('sat', 'aguardando Action', true); setStatus('stl', 'aguardando Action', true); return; }
+  }
+  clearInterval(satTick); drawSats(); satTick = setInterval(() => { if (!document.hidden) drawSats(); }, 3000);
+}
+function satPos(rec, date){
+  const pv = satellite.propagate(rec, date); if (!pv.position) return null;
+  const geo = satellite.eciToGeodetic(pv.position, satellite.gstime(date));
+  const v = pv.velocity ? Math.hypot(pv.velocity.x, pv.velocity.y, pv.velocity.z) : null;
+  return {lat:satellite.degreesLat(geo.latitude), lon:satellite.degreesLong(geo.longitude), alt:geo.height, v};
+}
+const SAT_G = {stations:'Estação espacial', visual:'Visível a olho nu', 'gps-ops':'GPS', weather:'Meteorológico', science:'Científico', geo:'Geoestacionário', starlink:'Starlink'};
+function drawSats(){
+  if (!sats) return;
+  const now = new Date(), onSat = byId.sat.on, onStl = byId.stl.on; let ns = 0, nl = 0;
+  for (const s of sats) {
+    const isStl = s.g === 'starlink', layer = isStl ? byId.stl : byId.sat;
+    if (!(isStl ? onStl : onSat)) { if (s.m) { layer.group.removeLayer(s.m); s.m = null; } continue; }
+    const p = satPos(s.rec, now); if (!p || isNaN(p.lat)) continue;
+    if (!s.m) {
+      const big = s.g === 'stations';
+      s.m = L.circleMarker([p.lat, p.lon], {radius:big ? 6 : isStl ? 2 : 3.5, weight:big ? 2 : 0, color:'#0b0f14', fillColor:isStl ? '#94a3b8' : big ? '#ffd166' : '#f1f5f9', fillOpacity:.95})
+        .on('click', () => showSat(s)).addTo(layer.group);
+    } else s.m.setLatLng([p.lat, p.lon]);
+    s.p = p; isStl ? nl++ : ns++;
+  }
+  setStatus('sat', fmt(ns)); setStatus('stl', onStl ? fmt(nl) : '');
+}
+function showSat(s){
+  clearInterval(camTimer);
+  if (satTrack) map.removeLayer(satTrack);
+  const pts = [], t0 = Date.now(), period = 2 * Math.PI / s.rec.no; // minutos
+  for (let m = -period / 2; m <= period / 2; m += period / 120) { const p = satPos(s.rec, new Date(t0 + m * 60000)); if (p) pts.push([p.lat, p.lon]); }
+  const segs = [[]]; pts.forEach((p, i) => { if (i && Math.abs(p[1] - pts[i-1][1]) > 180) segs.push([]); segs[segs.length - 1].push(p); });
+  satTrack = L.polyline(segs, {color:'#ffd166', weight:1.5, dashArray:'4 4', opacity:.8}).addTo(map);
+  const render = () => { const p = s.p || satPos(s.rec, new Date()); if (!p) return;
+    body.innerHTML = `<h2>${esc(s.name)}</h2><div class="meta">${esc(SAT_G[s.g] || s.g)} · NORAD ${s.rec.satnum}</div>
+      <p>Altitude: <b>${fmt(Math.round(p.alt))} km</b><br>Velocidade: <b>${p.v ? fmt(Math.round(p.v * 3600)) + ' km/h' : '—'}</b><br>Posição: ${p.lat.toFixed(2)}, ${p.lon.toFixed(2)}<br>Período orbital: ${Math.round(period)} min</p>
+      <div class="row"><a href="https://www.n2yo.com/satellite/?s=${s.rec.satnum}" target="_blank" rel="noopener">Ver no N2YO</a></div>`; };
+  sheet.classList.add('open'); render(); camTimer = setInterval(render, 3000);
+}
+$('#close').addEventListener('click', () => { if (satTrack) { map.removeLayer(satTrack); satTrack = null; } });
+
+/* Cabos submarinos (TeleGeography), aeroportos (OurAirports), frente na Ucrânia (DeepStateMap) */
+const once = {};
+async function staticLayer(id, file, draw){
+  if (once[id]) return; once[id] = true; setStatus(id, '…');
+  try { const d = await getJSON('data/' + file, {cache:'no-cache'}); setStatus(id, draw(d, byId[id].group)); }
+  catch(e){ once[id] = false; setStatus(id, 'aguardando Action', true); }
+}
+const loadCab = () => staticLayer('cab', 'cables.json', (d, g) => {
+  L.geoJSON(d, {style:f => ({color:f.properties.c || '#2ec4b6', weight:1.5, opacity:.75}),
+    onEachFeature:(f, ly) => ly.bindPopup(`<b>${esc(f.properties.n)}</b><br><a href="https://www.submarinecablemap.com/" target="_blank" rel="noopener">Submarine Cable Map</a>`)}).addTo(g);
+  return fmt(d.features.length); });
+const loadApt = () => staticLayer('apt', 'airports.json', (d, g) => {
+  d.forEach(a => L.circleMarker([a[0], a[1]], {radius:a[6] === 'G' ? 5 : 3, weight:1, color:'#0b0f14', fillColor:'#e9c46a', fillOpacity:.9})
+    .bindPopup(`<b>${esc(a[2])}</b>${a[3] ? ' (' + esc(a[3]) + ')' : ''}<br>${esc(a[4])} · ${esc(a[5])}<br>${a[6] === 'G' ? 'Grande porte' : 'Médio porte'}`).addTo(g));
+  return fmt(d.length); });
+const loadWar = () => staticLayer('war', 'frontline.json', (d, g) => {
+  L.geoJSON(d, {style:{color:'#e63946', weight:1, fillColor:'#e63946', fillOpacity:.25},
+    onEachFeature:(f, ly) => ly.bindPopup(`<b>Área ocupada</b>${f.properties.n ? '<br>' + esc(f.properties.n) : ''}<br><small>DeepStateMap${d.updated ? ' · ' + esc(String(d.updated).slice(0, 10)) : ''}</small>`)}).addTo(g);
+  return d.updated ? String(d.updated).slice(0, 10) : fmt(d.features.length); });
+
+/* Créditos */
+$('#infobtn').onclick = () => { clearInterval(camTimer); openSheet(`<h2>Fontes</h2><div class="meta">Dados públicos e gratuitos, usados para fins não comerciais.</div>
+  <p style="font-size:14px">Câmeras: Powered by TfL Open Data · Digitraffic/Fintraffic (CC BY 4.0) · NYC DOT · Caltrans · DriveBC · 511 Ontário · 511 Alberta<br>
+  Voos: airplanes.live · adsb.lol · OpenSky Network<br>Navios: Digitraffic (CC BY 4.0)<br>Satélites: CelesTrak · Terremotos: USGS · Eventos: NASA EONET<br>
+  Cabos: TeleGeography Submarine Cable Map · Aeroportos: OurAirports · Frente: DeepStateMap<br>Mapa: Esri, OpenStreetMap · Busca e camadas OSM: Nominatim, Overpass</p>`); };
+
+const LOADERS = {cam:() => camsLoaded || loadCams(), fly:loadFlights, ship:loadShips, quake:loadQuakes, evt:loadEvents, osm:loadOsm, pow:loadPow, sat:loadSats, stl:loadSats, cab:loadCab, apt:loadApt, war:loadWar};
 function refresh(l){ if (l.on) LOADERS[l.id](); }
 
 /* atualização: voos a cada 15 s, navios a cada 60 s; ao mover o mapa recarrega o que depende da área */

@@ -1,4 +1,4 @@
-name: Atualizar câmeras
+name: Atualizar dados
 
 on:
   schedule:
@@ -25,9 +25,10 @@ jobs:
         with:
           python-version: "3.12"
       - run: python scripts/fetch_cameras.py
+      - run: python scripts/fetch_extra.py
       - name: Commit
         run: |
           git config user.name "mirante-bot"
           git config user.email "mirante-bot@users.noreply.github.com"
-          git add data/cameras.json
-          git diff --cached --quiet || (git commit -m "Atualiza lista de câmeras" && git push)
+          git add data/
+          git diff --cached --quiet || (git commit -m "Atualiza dados" && git pull --rebase -q && git push)
