@@ -1,6 +1,6 @@
 """Baixa dados que mudam devagar e grava em data/ (evita CORS no navegador).
 
-- data/satellites.json : [[nome, linha1, linha2, grupo], ...]   (CelesTrak)
+- data/satellites.json : [[nome, linha1, linha2, grupo, id_intl, país, data_lanç, local, tipo, rcs], ...] (CelesTrak TLE + SATCAT)
 - data/cables.json     : GeoJSON simplificado dos cabos submarinos (TeleGeography)
 - data/airports.json   : [[lat, lon, nome, iata, cidade, país, tipo], ...] (OurAirports)
 - data/frontline.json  : GeoJSON das áreas ocupadas na Ucrânia (DeepStateMap)
@@ -41,6 +41,15 @@ def satellites():
                 continue
             seen.add(norad)
             out.append([name, l1, l2, group])
+    # Metadados do catálogo (país, lançamento, local, tipo). Se falhar, segue só com o TLE.
+    try:
+        cat = {r["NORAD_CAT_ID"].zfill(5): r for r in csv.DictReader(io.StringIO(get("https://celestrak.org/pub/satcat.csv", 180)))}
+        for sat in out:
+            r = cat.get(sat[1][2:7].strip().zfill(5))
+            if r:
+                sat += [r.get("OBJECT_ID", ""), r.get("OWNER", ""), r.get("LAUNCH_DATE", ""), r.get("LAUNCH_SITE", ""), r.get("OBJECT_TYPE", ""), r.get("RCS", "")]
+    except Exception as e:
+        print(f"  satcat: {e}", file=sys.stderr)
     save("satellites.json", out)
     return len(out)
 

@@ -43,8 +43,8 @@ form.search button{border:0;border-left:1px solid var(--line);border-radius:0}
 .grid figure{margin:0}.grid figcaption{font-size:12px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .empty{color:var(--mute);font-size:14px}
 .hint{position:fixed;z-index:999;left:50%;bottom:calc(env(safe-area-inset-bottom) + 16px);transform:translateX(-50%);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 14px;font-size:13px;color:var(--mute);white-space:nowrap;pointer-events:none;transition:opacity .3s}
-.plane{color:var(--fly);font-size:15px;line-height:1;text-shadow:0 0 4px #000;transform-origin:center}
-.camdot{width:10px;height:10px;border-radius:50%;background:var(--cam);border:2px solid #0b0f14;box-shadow:0 0 6px var(--cam)}
+.plane{color:var(--fly);font-size:20px;line-height:1;text-shadow:0 0 4px #000;transform-origin:center}
+.camdot{width:14px;height:14px;border-radius:50%;background:var(--cam);border:2px solid #0b0f14;box-shadow:0 0 6px var(--cam)}
 .marker-cluster{background:rgba(61,220,151,.22)!important;border-radius:50%}
 .marker-cluster div{background:rgba(61,220,151,.9)!important;color:#06140e;font:700 12px Inter,sans-serif;border-radius:50%}
 .leaflet-container{font:inherit;background:#0b0f14}
@@ -52,6 +52,10 @@ form.search button{border:0;border-left:1px solid var(--line);border-radius:0}
 .leaflet-control-attribution a{color:var(--mute)!important}
 .leaflet-control-zoom{display:none}
 .leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--panel);color:var(--ink)}
+.stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:10px 0}
+.stats div{background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.stats span{display:block;color:var(--mute);font-size:12px}.stats b{font:600 15px Inter,sans-serif;white-space:nowrap}
+.tag{display:inline-block;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:600;color:#0b0f14;margin-right:6px}
 @media(prefers-reduced-motion:reduce){.sheet{transition:none}}
 </style>
 </head>
@@ -79,7 +83,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 const store = {get(k,d){try{return JSON.parse(localStorage.getItem(k)) ?? d}catch{return d}}, set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}};
 
 const view = store.get('mirante:view', {c:[-26.23,-52.67], z:5});
-const map = L.map('map', {zoomControl:false, worldCopyJump:true, preferCanvas:true}).setView(view.c, view.z);
+const map = L.map('map', {zoomControl:false, worldCopyJump:true, preferCanvas:true, renderer:L.canvas({padding:.5, tolerance:10})}).setView(view.c, view.z);
 const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/';
 L.tileLayer(ESRI + 'World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
   maxZoom:19, maxNativeZoom:16,
@@ -170,7 +174,7 @@ async function loadCams(){
   try {
     const cams = await getJSON('data/cameras.json', {cache:'no-cache'});
     if (!cams.length) { setStatus('cam', 'aguardando Action', true); return; }
-    const icon = L.divIcon({className:'', html:'<div class="camdot"></div>', iconSize:[10,10]});
+    const icon = L.divIcon({className:'', html:'<div class="camdot"></div>', iconSize:[14,14]});
     l.group.addLayers(cams.map(c => L.marker([c[0], c[1]], {icon, title:c[2]}).on('click', () => showCam(c))));
     camsLoaded = true; setStatus('cam', fmt(cams.length));
   } catch(e){ setStatus('cam', 'erro', true); }
@@ -205,7 +209,7 @@ async function loadFlights(){
   if (!list) { setStatus('fly', (PROXY || hasApi) ? 'fontes indisponíveis' : 'precisa do proxy', true); return; }
   l.group.clearLayers();
   list.filter(a => a.lat != null && a.lon != null).forEach(a => {
-    const icon = L.divIcon({className:'', iconSize:[18,18], html:`<div class="plane" style="transform:rotate(${a.trk - 45}deg)">✈</div>`});
+    const icon = L.divIcon({className:'', iconSize:[24,24], html:`<div class="plane" style="transform:rotate(${a.trk - 45}deg)">✈</div>`});
     L.marker([a.lat, a.lon], {icon}).bindPopup(`<b>${esc(a.cs || a.id)}</b><br>${a.type ? esc(a.type) + '<br>' : ''}${a.reg ? esc(a.reg) + '<br>' : ''}Altitude: ${a.alt === 'ground' ? 'no solo' : a.alt != null ? fmt(a.alt) + ' ft' : '—'}<br>Velocidade: ${a.spd != null ? Math.round(a.spd) + ' kt' : '—'}<br><a href="https://globe.adsbexchange.com/?icao=${esc(a.id)}" target="_blank" rel="noopener">Ver no ADS-B Exchange</a>`).addTo(l.group);
   });
   setStatus('fly', `${fmt(list.length)} · ${used}`);
@@ -221,7 +225,7 @@ async function loadShips(){
     for (const f of shipCache) {
       const [lon, lat] = f.geometry.coordinates; if (!b.contains([lat, lon]) || n > 3000) continue; n++;
       const p = f.properties;
-      L.circleMarker([lat, lon], {radius:4, color:'#0b0f14', weight:1, fillColor:'#4cc9f0', fillOpacity:.9})
+      L.circleMarker([lat, lon], {radius:6, color:'#0b0f14', weight:1, fillColor:'#4cc9f0', fillOpacity:.9})
         .bindPopup(`<b>MMSI ${p.mmsi ?? f.mmsi}</b><br>Velocidade: ${p.sog ?? '—'} nós<br>Rumo: ${p.cog ?? '—'}°<br><a href="https://www.myshiptracking.com/?mmsi=${p.mmsi ?? f.mmsi}" target="_blank" rel="noopener">Detalhes</a>`).addTo(l.group);
     }
     setStatus('ship', n ? `${fmt(n)} na tela` : 'só no Báltico');
@@ -235,7 +239,7 @@ async function loadQuakes(){
     const d = await getJSON('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_week.geojson');
     l.group.clearLayers();
     d.features.forEach(f => { const [lon, lat, depth] = f.geometry.coordinates, p = f.properties;
-      L.circleMarker([lat, lon], {radius:Math.max(3, p.mag * 2.2), color:'#ff5d5d', weight:1, fillColor:'#ff5d5d', fillOpacity:.35})
+      L.circleMarker([lat, lon], {radius:Math.max(5, p.mag * 2.6), color:'#ff5d5d', weight:1, fillColor:'#ff5d5d', fillOpacity:.35})
         .bindPopup(`<b>M ${p.mag.toFixed(1)}</b> · ${esc(p.place)}<br>${new Date(p.time).toLocaleString('pt-BR')}<br>Profundidade: ${Math.round(depth)} km<br><a href="${esc(p.url)}" target="_blank" rel="noopener">USGS</a>`).addTo(l.group); });
     setStatus('quake', fmt(d.features.length) + ' em 7 dias');
   } catch(e){ setStatus('quake', 'erro', true); }
@@ -250,7 +254,7 @@ async function loadEvents(){
     l.group.clearLayers();
     d.events.forEach(e => { const g = e.geometry[e.geometry.length - 1]; if (!g || g.type !== 'Point') return;
       const [lon, lat] = g.coordinates, cat = e.categories[0]?.id;
-      L.circleMarker([lat, lon], {radius:6, color:'#0b0f14', weight:1, fillColor:'#ff8c42', fillOpacity:.9})
+      L.circleMarker([lat, lon], {radius:8, color:'#0b0f14', weight:1, fillColor:'#ff8c42', fillOpacity:.9})
         .bindPopup(`<b>${esc(EVT_PT[cat] || e.categories[0]?.title || 'Evento')}</b><br>${esc(e.title)}<br>${new Date(g.date).toLocaleDateString('pt-BR')}${e.sources[0] ? `<br><a href="${esc(e.sources[0].url)}" target="_blank" rel="noopener">Fonte</a>` : ''}`).addTo(l.group); });
     setStatus('evt', fmt(d.events.length) + ' ativos');
   } catch(e){ setStatus('evt', 'erro', true); }
@@ -270,31 +274,34 @@ async function overpass(id, query, minZoom, draw){
   } catch(e){ setStatus(id, 'Overpass ocupado', true); }
 }
 const loadOsm = () => overpass('osm', 'node["man_made"="surveillance"](BBOX);out 1500;', 13, (el, lat, lon) =>
-  L.circleMarker([lat, lon], {radius:4, color:'#0b0f14', weight:1, fillColor:'#c77dff', fillOpacity:.9})
+  L.circleMarker([lat, lon], {radius:6, color:'#0b0f14', weight:1, fillColor:'#c77dff', fillOpacity:.9})
     .bindPopup(`<b>Câmera mapeada no OSM</b><br>Tipo: ${esc(el.tags?.['surveillance:type'] || el.tags?.surveillance || '—')}<br>${el.tags?.operator ? 'Operador: ' + esc(el.tags.operator) + '<br>' : ''}<small>Sem imagem pública</small>`));
 const loadPow = () => overpass('pow', 'nwr["power"="plant"](BBOX);out center 800;', 7, (el, lat, lon) =>
-  L.circleMarker([lat, lon], {radius:5, color:'#0b0f14', weight:1, fillColor:'#f72585', fillOpacity:.9})
+  L.circleMarker([lat, lon], {radius:7, color:'#0b0f14', weight:1, fillColor:'#f72585', fillOpacity:.9})
     .bindPopup(`<b>${esc(el.tags?.name || 'Usina')}</b><br>Fonte: ${esc(el.tags?.['plant:source'] || '—')}<br>${el.tags?.['plant:output:electricity'] ? 'Potência: ' + esc(el.tags['plant:output:electricity']) : ''}`));
 
 
-/* Satélites: TLE da CelesTrak (baixado pela Action) propagado com SGP4 no navegador */
-let sats = null, satTick, satTrack = null;
+/* Satélites: TLE + catálogo da CelesTrak (baixados pela Action), posição por SGP4 no navegador */
+const SAT_G = {stations:['Estação espacial','#ffd166'], visual:['Visível a olho nu','#f1f5f9'], 'gps-ops':['Navegação GPS','#3ddc97'], weather:['Meteorológico','#4cc9f0'], science:['Científico','#c77dff'], geo:['Geoestacionário','#ff8c42'], starlink:['Starlink (internet)','#94a3b8']};
+const OWNER = {US:'Estados Unidos', PRC:'China', CIS:'Rússia/ex-URSS', ESA:'Agência Espacial Europeia', JPN:'Japão', IND:'Índia', FR:'França', UK:'Reino Unido', GER:'Alemanha', BRAZ:'Brasil', CA:'Canadá', ISS:'Estação Espacial Internacional (consórcio)', ITSO:'Intelsat', SES:'SES', EUME:'EUMETSAT', SKOR:'Coreia do Sul', IT:'Itália', SPN:'Espanha', AUS:'Austrália', ISRA:'Israel', ARGN:'Argentina', UAE:'Emirados Árabes', GLOB:'Globalstar', ORB:'Orbcomm', IRID:'Iridium', NETH:'Holanda', TURK:'Turquia', SAUD:'Arábia Saudita', LUXE:'Luxemburgo', O3B:'O3b/SES', AB:'Arabsat', EUTE:'Eutelsat', FRIT:'França/Itália', MEX:'México', INDO:'Indonésia', SING:'Singapura', TWN:'Taiwan', NOR:'Noruega', SWED:'Suécia', FIN:'Finlândia', NZ:'Nova Zelândia', PAKI:'Paquistão', IRAN:'Irã', NKOR:'Coreia do Norte', THAI:'Tailândia', VTNM:'Vietnã', KAZ:'Cazaquistão', EGYP:'Egito', NIG:'Nigéria', CHLE:'Chile', PERU:'Peru', BOL:'Bolívia', VENZ:'Venezuela', URY:'Uruguai'};
+const SITE = {AFETR:'Cabo Canaveral (EUA)', AFWTR:'Vandenberg (EUA)', KSCUT:'Centro Kennedy (EUA)', WRAS:'Wallops (EUA)', TYMSC:'Baikonur (Cazaquistão)', PLMSC:'Plesetsk (Rússia)', VOSTO:'Vostochny (Rússia)', KYMSC:'Kapustin Yar (Rússia)', JSC:'Jiuquan (China)', XSC:'Xichang (China)', TSC:'Taiyuan (China)', WSC:'Wenchang (China)', YSLA:'Mar Amarelo (China)', FRGUI:'Kourou (Guiana Francesa)', SRILR:'Sriharikota (Índia)', TNSTA:'Tanegashima (Japão)', KSCUT2:'Kagoshima (Japão)', RLLB:'Mahia (Nova Zelândia)', SEAL:'Sea Launch (oceano)', NSC:'Naro (Coreia do Sul)', SEMLS:'Semnan (Irã)', SVOBO:'Svobodny (Rússia)', DLS:'Dombarovsky (Rússia)', ALCLC:'Alcântara (Brasil)', KWAJ:'Kwajalein (Ilhas Marshall)', PKMTR:'Pacific Spaceport (Alasca)', SADOL:'Mar de Barents (submarino)', TTMTR:'Taiyuan (China)'};
+const TYPE = {PAY:'Satélite ativo/carga útil', 'R/B':'Corpo de foguete', DEB:'Detrito', UNK:'Desconhecido'};
+let sats = null, satTick, satSel = null, satLayers = [];
 async function loadSats(){
   if (!sats) {
     try {
       const raw = await getJSON('data/satellites.json', {cache:'no-cache'});
-      sats = raw.map(([name, l1, l2, g]) => { try { return {name, g, rec:satellite.twoline2satrec(l1, l2), m:null}; } catch(e){ return null; } }).filter(Boolean);
+      sats = raw.map(r => { try { return {name:r[0], l1:r[1], g:r[3], id:r[4], own:r[5], ld:r[6], site:r[7], type:r[8], rcs:r[9], rec:satellite.twoline2satrec(r[1], r[2]), m:null}; } catch(e){ return null; } }).filter(Boolean);
     } catch(e){ setStatus('sat', 'aguardando Action', true); setStatus('stl', 'aguardando Action', true); return; }
   }
-  clearInterval(satTick); drawSats(); satTick = setInterval(() => { if (!document.hidden) drawSats(); }, 3000);
+  clearInterval(satTick); drawSats(); satTick = setInterval(() => { if (!document.hidden) drawSats(); }, 2000);
 }
 function satPos(rec, date){
-  const pv = satellite.propagate(rec, date); if (!pv.position) return null;
+  const pv = satellite.propagate(rec, date); if (!pv || !pv.position) return null;
   const geo = satellite.eciToGeodetic(pv.position, satellite.gstime(date));
   const v = pv.velocity ? Math.hypot(pv.velocity.x, pv.velocity.y, pv.velocity.z) : null;
   return {lat:satellite.degreesLat(geo.latitude), lon:satellite.degreesLong(geo.longitude), alt:geo.height, v};
 }
-const SAT_G = {stations:'Estação espacial', visual:'Visível a olho nu', 'gps-ops':'GPS', weather:'Meteorológico', science:'Científico', geo:'Geoestacionário', starlink:'Starlink'};
 function drawSats(){
   if (!sats) return;
   const now = new Date(), onSat = byId.sat.on, onStl = byId.stl.on; let ns = 0, nl = 0;
@@ -303,28 +310,68 @@ function drawSats(){
     if (!(isStl ? onStl : onSat)) { if (s.m) { layer.group.removeLayer(s.m); s.m = null; } continue; }
     const p = satPos(s.rec, now); if (!p || isNaN(p.lat)) continue;
     if (!s.m) {
-      const big = s.g === 'stations';
-      s.m = L.circleMarker([p.lat, p.lon], {radius:big ? 6 : isStl ? 2 : 3.5, weight:big ? 2 : 0, color:'#0b0f14', fillColor:isStl ? '#94a3b8' : big ? '#ffd166' : '#f1f5f9', fillOpacity:.95})
+      const big = s.g === 'stations', col = (SAT_G[s.g] || SAT_G.visual)[1];
+      s.m = L.circleMarker([p.lat, p.lon], {radius:big ? 9 : isStl ? 4 : 6.5, weight:2, color:'#0b0f14', fillColor:col, fillOpacity:1})
         .on('click', () => showSat(s)).addTo(layer.group);
     } else s.m.setLatLng([p.lat, p.lon]);
     s.p = p; isStl ? nl++ : ns++;
   }
+  if (satSel && satSel.p) satLayers[0]?.setLatLng([satSel.p.lat, satSel.p.lon]);
   setStatus('sat', fmt(ns)); setStatus('stl', onStl ? fmt(nl) : '');
 }
-function showSat(s){
-  clearInterval(camTimer);
-  if (satTrack) map.removeLayer(satTrack);
-  const pts = [], t0 = Date.now(), period = 2 * Math.PI / s.rec.no; // minutos
-  for (let m = -period / 2; m <= period / 2; m += period / 120) { const p = satPos(s.rec, new Date(t0 + m * 60000)); if (p) pts.push([p.lat, p.lon]); }
-  const segs = [[]]; pts.forEach((p, i) => { if (i && Math.abs(p[1] - pts[i-1][1]) > 180) segs.push([]); segs[segs.length - 1].push(p); });
-  satTrack = L.polyline(segs, {color:'#ffd166', weight:1.5, dashArray:'4 4', opacity:.8}).addTo(map);
-  const render = () => { const p = s.p || satPos(s.rec, new Date()); if (!p) return;
-    body.innerHTML = `<h2>${esc(s.name)}</h2><div class="meta">${esc(SAT_G[s.g] || s.g)} · NORAD ${s.rec.satnum}</div>
-      <p>Altitude: <b>${fmt(Math.round(p.alt))} km</b><br>Velocidade: <b>${p.v ? fmt(Math.round(p.v * 3600)) + ' km/h' : '—'}</b><br>Posição: ${p.lat.toFixed(2)}, ${p.lon.toFixed(2)}<br>Período orbital: ${Math.round(period)} min</p>
-      <div class="row"><a href="https://www.n2yo.com/satellite/?s=${s.rec.satnum}" target="_blank" rel="noopener">Ver no N2YO</a></div>`; };
-  sheet.classList.add('open'); render(); camTimer = setInterval(render, 3000);
+function clearSel(){ satLayers.forEach(l => map.removeLayer(l)); satLayers = []; satSel = null; }
+const R_EARTH = 6378.137, MU = 398600.4418;
+function launchYear(s){
+  if (s.ld) return +s.ld.slice(0, 4);
+  const yy = +s.l1.slice(9, 11); return isNaN(yy) ? null : (yy < 57 ? 2000 : 1900) + yy;
 }
-$('#close').addEventListener('click', () => { if (satTrack) { map.removeLayer(satTrack); satTrack = null; } });
+function showSat(s){
+  clearInterval(camTimer); clearSel(); satSel = s;
+  const rec = s.rec, period = 2 * Math.PI / rec.no; // minutos
+  const a = Math.cbrt(MU / Math.pow(rec.no / 60, 2)), apo = a * (1 + rec.ecco) - R_EARTH, peri = a * (1 - rec.ecco) - R_EARTH;
+  const incl = rec.inclo * 180 / Math.PI;
+  const pts = [], t0 = Date.now();
+  for (let m = -period / 2; m <= period / 2; m += period / 160) { const p = satPos(rec, new Date(t0 + m * 60000)); if (p) pts.push([p.lat, p.lon]); }
+  const segs = [[]]; pts.forEach((p, i) => { if (i && Math.abs(p[1] - pts[i-1][1]) > 180) segs.push([]); segs[segs.length - 1].push(p); });
+  const p0 = s.p || satPos(rec, new Date());
+  satLayers = [
+    L.circleMarker([p0.lat, p0.lon], {radius:16, color:'#ffd166', weight:2, fill:false, interactive:false}),
+    L.polyline(segs, {color:'#ffd166', weight:2, dashArray:'5 5', opacity:.85, interactive:false}),
+  ];
+  const cover = L.circle([p0.lat, p0.lon], {radius:R_EARTH * 1000 * Math.acos(R_EARTH / (R_EARTH + p0.alt)), color:'#ffd166', weight:1, fillOpacity:.06, interactive:false});
+  satLayers.push(cover); satLayers.forEach(l => l.addTo(map));
+  const [cat, col] = SAT_G[s.g] || ['Outro', '#fff'];
+  const yr = launchYear(s), age = yr ? new Date().getFullYear() - yr : null;
+  const orbit = a - R_EARTH > 30000 ? (incl < 5 && rec.ecco < .05 ? 'Geoestacionária (GEO)' : 'Geossíncrona/alta') : peri < 2000 && apo > 10000 ? 'Altamente elíptica (HEO)' : a - R_EARTH > 2000 ? 'Média (MEO)' : 'Baixa (LEO)';
+  const stat = (k, v) => `<div><span>${k}</span><b>${v}</b></div>`;
+  const render = () => {
+    const p = s.p || satPos(rec, new Date()); if (!p) return;
+    cover.setLatLng([p.lat, p.lon]).setRadius(R_EARTH * 1000 * Math.acos(R_EARTH / (R_EARTH + p.alt)));
+    body.innerHTML = `<h2>${esc(s.name)}</h2>
+      <div class="meta"><span class="tag" style="background:${col}">${esc(cat)}</span>${s.type ? esc(TYPE[s.type] || s.type) : ''}</div>
+      <div class="stats">
+        ${stat('Velocidade', p.v ? fmt(Math.round(p.v * 3600)) + ' km/h' : '—')}
+        ${stat('Altitude', fmt(Math.round(p.alt)) + ' km')}
+        ${stat('País/operador', esc(OWNER[s.own] || s.own || '—'))}
+        ${stat('Lançamento', s.ld ? new Date(s.ld + 'T12:00').toLocaleDateString('pt-BR') : yr || '—')}
+        ${stat('Em órbita há', age != null ? (age < 1 ? 'menos de 1 ano' : age + (age === 1 ? ' ano' : ' anos')) : '—')}
+        ${stat('Local de lançamento', esc(SITE[s.site] || s.site || '—'))}
+        ${stat('Tipo de órbita', orbit)}
+        ${stat('Volta na Terra', period < 120 ? Math.round(period) + ' min' : (period / 60).toFixed(1) + ' h')}
+        ${stat('Voltas por dia', (1440 / period).toFixed(1))}
+        ${stat('Inclinação', incl.toFixed(1) + '°')}
+        ${stat('Apogeu / perigeu', fmt(Math.round(apo)) + ' / ' + fmt(Math.round(peri)) + ' km')}
+        ${stat('Posição', p.lat.toFixed(2) + ', ' + p.lon.toFixed(2))}
+        ${stat('NORAD', rec.satnum)}
+        ${stat('Designação', esc(s.id || s.l1.slice(9, 17).trim()))}
+      </div>
+      <div class="meta">Linha tracejada: uma volta completa. Círculo: área de onde ele está visível agora.</div>
+      <div class="row"><a href="https://www.n2yo.com/satellite/?s=${rec.satnum}" target="_blank" rel="noopener">Passagens sobre você (N2YO)</a> <a href="https://celestrak.org/satcat/table-satcat.php?CATNR=${rec.satnum}" target="_blank" rel="noopener">Catálogo</a></div>`;
+  };
+  sheet.classList.add('open'); render(); camTimer = setInterval(render, 2000);
+  if (map.getZoom() > 4) map.panTo([p0.lat, p0.lon]);
+}
+$('#close').addEventListener('click', clearSel);
 
 /* Cabos submarinos (TeleGeography), aeroportos (OurAirports), frente na Ucrânia (DeepStateMap) */
 const once = {};
@@ -338,7 +385,7 @@ const loadCab = () => staticLayer('cab', 'cables.json', (d, g) => {
     onEachFeature:(f, ly) => ly.bindPopup(`<b>${esc(f.properties.n)}</b><br><a href="https://www.submarinecablemap.com/" target="_blank" rel="noopener">Submarine Cable Map</a>`)}).addTo(g);
   return fmt(d.features.length); });
 const loadApt = () => staticLayer('apt', 'airports.json', (d, g) => {
-  d.forEach(a => L.circleMarker([a[0], a[1]], {radius:a[6] === 'G' ? 5 : 3, weight:1, color:'#0b0f14', fillColor:'#e9c46a', fillOpacity:.9})
+  d.forEach(a => L.circleMarker([a[0], a[1]], {radius:a[6] === 'G' ? 7 : 5, weight:1, color:'#0b0f14', fillColor:'#e9c46a', fillOpacity:.9})
     .bindPopup(`<b>${esc(a[2])}</b>${a[3] ? ' (' + esc(a[3]) + ')' : ''}<br>${esc(a[4])} · ${esc(a[5])}<br>${a[6] === 'G' ? 'Grande porte' : 'Médio porte'}`).addTo(g));
   return fmt(d.length); });
 const loadWar = () => staticLayer('war', 'frontline.json', (d, g) => {
