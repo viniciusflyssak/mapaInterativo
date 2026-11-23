@@ -6,6 +6,7 @@
 <title>Mirante · mapa ao vivo</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -44,8 +45,8 @@ form.search button{border:0;border-left:1px solid var(--line);border-radius:0}
 .hint{position:fixed;z-index:999;left:50%;bottom:calc(env(safe-area-inset-bottom) + 16px);transform:translateX(-50%);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 14px;font-size:13px;color:var(--mute);white-space:nowrap;pointer-events:none;transition:opacity .3s}
 .plane{color:var(--fly);font-size:15px;line-height:1;text-shadow:0 0 4px #000;transform-origin:center}
 .camdot{width:10px;height:10px;border-radius:50%;background:var(--cam);border:2px solid #0b0f14;box-shadow:0 0 6px var(--cam)}
-.marker-cluster{background:rgba(61,220,151,.18)!important}
-.marker-cluster div{background:rgba(61,220,151,.85)!important;color:#06140e;font:700 12px Inter,sans-serif}
+.marker-cluster{background:rgba(61,220,151,.22)!important;border-radius:50%}
+.marker-cluster div{background:rgba(61,220,151,.9)!important;color:#06140e;font:700 12px Inter,sans-serif;border-radius:50%}
 .leaflet-container{font:inherit;background:#0b0f14}
 .leaflet-control-attribution{background:rgba(11,15,20,.7)!important;color:var(--mute)!important;font-size:10px}
 .leaflet-control-attribution a{color:var(--mute)!important}
@@ -77,10 +78,13 @@ const store = {get(k,d){try{return JSON.parse(localStorage.getItem(k)) ?? d}catc
 
 const view = store.get('mirante:view', {c:[-26.23,-52.67], z:5});
 const map = L.map('map', {zoomControl:false, worldCopyJump:true, preferCanvas:true}).setView(view.c, view.z);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-  maxZoom:19, subdomains:'abcd',
-  attribution:'© OpenStreetMap · © CARTO · dados: órgãos de trânsito, adsb.lol/OpenSky, Digitraffic, USGS, NASA EONET'
+const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/';
+L.tileLayer(ESRI + 'World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+  maxZoom:19, maxNativeZoom:16,
+  attribution:'Mapa © Esri, OpenStreetMap · dados: órgãos de trânsito, adsb.lol/airplanes.live/OpenSky, Digitraffic, USGS, NASA EONET'
 }).addTo(map);
+map.createPane('labels'); map.getPane('labels').style.zIndex = 350; map.getPane('labels').style.pointerEvents = 'none';
+L.tileLayer(ESRI + 'World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {maxZoom:19, maxNativeZoom:16, pane:'labels'}).addTo(map);
 map.on('moveend', () => store.set('mirante:view', {c:[map.getCenter().lat, map.getCenter().lng], z:map.getZoom()}));
 
 const hint = $('#hint');
@@ -165,21 +169,28 @@ async function loadCams(){
   } catch(e){ setStatus('cam', 'erro', true); }
 }
 
-/* Voos: tenta adsb.lol, depois airplanes.live, depois OpenSky */
+/* Voos. adsb.lol e airplanes.live não liberam CORS: passam pelo proxy (worker/flights-proxy.js) se PROXY estiver preenchido. */
+const PROXY = '';
+const clampLon = x => Math.max(-180, Math.min(180, x)), clampLat = x => Math.max(-90, Math.min(90, x));
 async function loadFlights(){
   const l = byId.fly;
   if (map.getZoom() < 6) { l.group.clearLayers(); setStatus('fly', 'aproxime o mapa'); return; }
-  const c = map.getCenter(), b = map.getBounds();
-  const radius = Math.min(250, Math.ceil(c.distanceTo(b.getNorthEast()) / 1852));
-  const point = base => getJSON(`${base}/v2/point/${c.lat.toFixed(3)}/${c.lng.toFixed(3)}/${radius}`)
-    .then(d => (d.ac || []).map(a => ({id:a.hex, cs:(a.flight||a.hex||'').trim(), lat:a.lat, lon:a.lon, alt:a.alt_baro, spd:a.gs, trk:a.track ?? a.true_heading ?? 0, type:a.t, reg:a.r})));
-  const opensky = () => getJSON(`https://opensky-network.org/api/states/all?lamin=${b.getSouth()}&lomin=${b.getWest()}&lamax=${b.getNorth()}&lomax=${b.getEast()}`)
+  const b = map.getBounds(), c = b.getCenter();
+  const lat = c.lat, lon = ((c.lng + 540) % 360) - 180;
+  const radius = Math.max(10, Math.min(250, Math.ceil(c.distanceTo(b.getNorthEast()) / 1852)));
+  const via = u => PROXY ? `${PROXY}?url=${encodeURIComponent(u)}` : u;
+  const readsb = url => getJSON(via(url)).then(d => (d.ac || d.aircraft || []).map(a => ({id:a.hex, cs:(a.flight||a.hex||'').trim(), lat:a.lat, lon:a.lon, alt:a.alt_baro, spd:a.gs, trk:a.track ?? a.true_heading ?? 0, type:a.t, reg:a.r})));
+  const w = clampLon(b.getWest()), e = clampLon(b.getEast());
+  const opensky = () => getJSON(`https://opensky-network.org/api/states/all?lamin=${clampLat(b.getSouth()).toFixed(3)}&lomin=${(w < e ? w : -180).toFixed(3)}&lamax=${clampLat(b.getNorth()).toFixed(3)}&lomax=${(w < e ? e : 180).toFixed(3)}`)
     .then(d => (d.states || []).map(s => ({id:s[0], cs:(s[1]||s[0]).trim(), lat:s[6], lon:s[5], alt:s[7] != null ? Math.round(s[7]*3.281) : null, spd:s[9] != null ? Math.round(s[9]*1.944) : null, trk:s[10] || 0, type:s[2]})));
+  const chain = [
+    ...(PROXY ? [['adsb.lol', () => readsb(`https://api.adsb.lol/v2/point/${lat.toFixed(3)}/${lon.toFixed(3)}/${radius}`)]] : []),
+    ['airplanes.live', () => readsb(`https://api.airplanes.live/v2/point/${lat.toFixed(3)}/${lon.toFixed(3)}/${radius}`)],
+    ['OpenSky', opensky],
+  ];
   let list = null, used = '';
-  for (const [name, fn] of [['adsb.lol', () => point('https://api.adsb.lol')], ['airplanes.live', () => point('https://api.airplanes.live')], ['OpenSky', opensky]]) {
-    try { list = await fn(); used = name; break; } catch(e){}
-  }
-  if (!list) { setStatus('fly', 'fontes indisponíveis', true); return; }
+  for (const [name, fn] of chain) { try { list = await fn(); used = name; break; } catch(err){} }
+  if (!list) { setStatus('fly', PROXY ? 'fontes indisponíveis' : 'precisa do proxy', true); return; }
   l.group.clearLayers();
   list.filter(a => a.lat != null && a.lon != null).forEach(a => {
     const icon = L.divIcon({className:'', iconSize:[18,18], html:`<div class="plane" style="transform:rotate(${a.trk - 45}deg)">✈</div>`});
