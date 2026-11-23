@@ -1,15 +1,78 @@
 {
- "updated": "2026-11-23 23:14 UTC",
+ "updated": "2026-11-23 23:25 UTC",
  "cameras": {
-  "nyc": 488,
-  "iowa": 1253,
   "tfl": 889,
-  "digitraffic": 809,
   "drivebc": 1062,
+  "iowa": 1253,
+  "digitraffic": 810,
+  "nyc": 488,
+  "caltrans": 3445,
   "road511": 0,
   "nzta": 244,
-  "caltrans": 3445,
-  "antt": "erro: The read operation timed out"
+  "antt": 0
  },
- "probe": {}
+ "probe": {
+  "road511_errors": {
+   "FL": "HTTP Error 401: Unauthorized",
+   "UT": "HTTP Error 401: Unauthorized",
+   "WA": "HTTP Error 401: Unauthorized",
+   "OR": "HTTP Error 401: Unauthorized",
+   "CO": "HTTP Error 401: Unauthorized",
+   "SC": "HTTP Error 401: Unauthorized",
+   "IN": "HTTP Error 401: Unauthorized",
+   "TN": "HTTP Error 401: Unauthorized",
+   "AZ": "HTTP Error 401: Unauthorized",
+   "KS": "HTTP Error 401: Unauthorized",
+   "AR": "HTTP Error 401: Unauthorized",
+   "OH": "HTTP Error 401: Unauthorized",
+   "KY": "HTTP Error 401: Unauthorized",
+   "NE": "HTTP Error 401: Unauthorized",
+   "DE": "HTTP Error 401: Unauthorized",
+   "MA": "HTTP Error 401: Unauthorized",
+   "WY": "HTTP Error 401: Unauthorized",
+   "ND": "HTTP Error 401: Unauthorized",
+   "SD": "HTTP Error 401: Unauthorized",
+   "MT": "HTTP Error 401: Unauthorized"
+  },
+  "antt_resources": [
+   [
+    "Informações sobre as CFTVS",
+    "https://dados.antt.gov.br/dataset/a67c5bc2-486f-40b9-99d6-197a0ab3376a/resource/0ce910eb-6141-455b-a4b1-d1f445ccd197/download/informacoes-sobre-as-cftvs4_2026.json"
+   ],
+   [
+    "Informações sobre as CFTVS",
+    "https://dados.antt.gov.br/dataset/a67c5bc2-486f-40b9-99d6-197a0ab3376a/resource/f83c9e9a-b3fd-41ca-8b54-9c550e6144d2/download/informacoes-sobre-as-cftvs5_2026.json"
+   ]
+  ],
+  "antt_sample": [
+   {
+    "concessionaria": "AUTOPISTA FERNÃO DIAS",
+    "ano_do_pnv_snv": "2007",
+    "rodovia": "Contorno",
+    "uf": "MG",
+    "km_m": "0,3",
+    "municipio": "Betim",
+    "tipo_de_pista": "Principal",
+    "sentido": "Crescente/Decrescente",
+    "situacao": "Ativo",
+    "data_da_inativacao": "",
+    "latitude": "-19,963224",
+    "longitude": "-44,157"
+   },
+   {
+    "concessionaria": "AUTOPISTA FERNÃO DIAS",
+    "ano_do_pnv_snv": "2007",
+    "rodovia": "BR-381",
+    "uf": "MG",
+    "km_m": "502,525",
+    "municipio": "Betim",
+    "tipo_de_pista": "Principal",
+    "sentido": "Crescente",
+    "situacao": "Ativo",
+    "data_da_inativacao": "",
+    "latitude": "-20,019472",
+    "longitude": "-44,228"
+   }
+  ]
+ }
 }
