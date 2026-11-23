@@ -91,6 +91,7 @@ form.search button{border:0;border-left:1px solid var(--line);border-radius:0}
 {
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const NA = 'sem informação';
 const store = {get(k,d){try{return JSON.parse(localStorage.getItem(k)) ?? d}catch{return d}}, set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}};
 
 const view = store.get('mirante:view', {c:[-26.23,-52.67], z:5});
@@ -155,9 +156,13 @@ const bust = u => u + (u.includes('?') ? '&' : '?') + '_=' + Date.now();
 
 let favs = store.get('mirante:favs', []);
 let hls = null;
-function stopVideo(){ if (hls) { hls.destroy(); hls = null; } const v = $('#vid'); if (v) { v.pause(); v.removeAttribute('src'); v.load(); } }
+function stopVideo(){ if (hls) { hls.destroy(); hls = null; } const v = $('#vid'); if (v && v.tagName === 'VIDEO') { v.pause(); v.removeAttribute('src'); v.load(); } else if (v) v.remove(); }
 function playVideo(url, box){
   stopVideo();
+  if (url.startsWith('iframe:')) {
+    box.innerHTML = `<iframe id="vid" src="${esc(url.slice(7))}" allow="autoplay; fullscreen" allowfullscreen referrerpolicy="no-referrer" style="width:100%;aspect-ratio:16/9;border:0;border-radius:10px;background:#000"></iframe>`;
+    return;
+  }
   box.innerHTML = '<video id="vid" playsinline muted autoplay controls></video>';
   const v = $('#vid'), fail = () => { stopVideo(); box.innerHTML = '<div class="err">O vídeo desta câmera não abriu agora. Mostrando a imagem.</div>'; };
   v.onerror = fail;
@@ -171,16 +176,17 @@ function playVideo(url, box){
 function showCam(c){
   stopVideo();
   const [lat, lon, name, img, src, video] = c;
-  const isFav = favs.some(f => f[3] === img);
+  const key = img || video, isFav = favs.some(f => (f[3] || f[5]) === key);
   openSheet(`<h2>${esc(name)}</h2><div class="meta">${esc(src)} · ${lat.toFixed(4)}, ${lon.toFixed(4)}${video ? '' : ' · imagem atualiza a cada 15 s'}</div>
     <div class="vidwrap" id="vbox"></div>
-    <img class="shot" id="shot" alt="Imagem da câmera ${esc(name)}" src="${esc(bust(img))}">
-    <div class="row">${video ? '<button id="play" class="live">Ver ao vivo</button>' : ''}<button id="fav">${isFav ? '★ Remover dos favoritos' : '☆ Favoritar'}</button>
-    <a href="${esc(img)}" target="_blank" rel="noopener">Abrir imagem</a></div>`);
-  const shot = $('#shot'), vbox = $('#vbox');
+    ${img ? `<img class="shot" id="shot" referrerpolicy="no-referrer" alt="Imagem da câmera ${esc(name)}" src="${esc(bust(img))}">` : ''}
+    <div class="row">${video && img ? '<button id="play" class="live">Ver ao vivo</button>' : ''}<button id="fav">${isFav ? '★ Remover dos favoritos' : '☆ Favoritar'}</button>
+    ${img ? `<a href="${esc(img)}" target="_blank" rel="noopener">Abrir imagem</a>` : ''}</div>`);
+  const shot = $('#shot') || {style:{}, isConnected:false}, vbox = $('#vbox');
   shot.onerror = () => { shot.alt = 'Imagem indisponível agora'; };
-  clearInterval(camTimer); camTimer = setInterval(() => { if (shot.isConnected && shot.style.display !== 'none') shot.src = bust(img); }, 15000);
-  if (video) $('#play').onclick = () => {
+  clearInterval(camTimer); if (img) camTimer = setInterval(() => { if (shot.isConnected && shot.style.display !== 'none') shot.src = bust(img); }, 15000);
+  if (!img && video) { playVideo(video, vbox); }
+  if (video && img) $('#play').onclick = () => {
     const on = !$('#vid');
     if (on) { shot.style.display = 'none'; playVideo(video, vbox); $('#play').textContent = 'Voltar à imagem'; }
     else { stopVideo(); vbox.innerHTML = ''; shot.style.display = ''; $('#play').textContent = 'Ver ao vivo'; }
@@ -188,7 +194,7 @@ function showCam(c){
     obs.observe(vbox, {childList:true});
   };
   $('#fav').onclick = () => {
-    favs = isFav ? favs.filter(f => f[3] !== img) : [...favs, c];
+    favs = isFav ? favs.filter(f => (f[3] || f[5]) !== key) : [...favs, c];
     store.set('mirante:favs', favs); showCam(c);
   };
 }
@@ -196,8 +202,8 @@ function showFavs(){
   clearInterval(camTimer);
   if (!favs.length) return openSheet('<h2>Favoritas</h2><p class="empty">Toque numa câmera e use ☆ Favoritar para vê-las todas juntas aqui.</p>');
   openSheet(`<h2>Favoritas</h2><div class="meta">${favs.length} câmeras · atualiza a cada 20 s</div><div class="grid">${
-    favs.map((f,i) => `<figure><img class="shot" data-i="${i}" alt="${esc(f[2])}" src="${esc(bust(f[3]))}"><figcaption>${esc(f[2])}</figcaption></figure>`).join('')}</div>`);
-  body.querySelectorAll('img[data-i]').forEach(im => im.onclick = () => { const f = favs[im.dataset.i]; map.setView([f[0], f[1]], 14); showCam(f); });
+    favs.map((f,i) => `<figure>${f[3] ? `<img class="shot" data-i="${i}" referrerpolicy="no-referrer" alt="${esc(f[2])}" src="${esc(bust(f[3]))}">` : `<button class="shot" data-i="${i}" style="width:100%">▶ Vídeo ao vivo</button>`}<figcaption>${esc(f[2])}</figcaption></figure>`).join('')}</div>`);
+  body.querySelectorAll('[data-i]').forEach(im => im.onclick = () => { const f = favs[im.dataset.i]; map.setView([f[0], f[1]], 14); showCam(f); });
   camTimer = setInterval(() => body.querySelectorAll('img[data-i]').forEach(im => im.src = bust(favs[im.dataset.i][3])), 20000);
 }
 $('#favbtn').onclick = showFavs;
@@ -284,7 +290,7 @@ async function loadFlights(){
   l.group.clearLayers();
   list.filter(a => a.lat != null && a.lon != null).forEach(a => {
     const icon = L.divIcon({className:'', iconSize:[24,24], html:`<div class="plane" style="transform:rotate(${a.trk}deg);width:24px;height:24px">${ICO.fly}</div>`});
-    L.marker([a.lat, a.lon], {icon}).bindPopup(`<b>${esc(a.cs || a.id)}</b><br>${a.type ? esc(a.type) + '<br>' : ''}${a.reg ? esc(a.reg) + '<br>' : ''}Altitude: ${a.alt === 'ground' ? 'no solo' : a.alt != null ? fmt(a.alt) + ' ft' : '—'}<br>Velocidade: ${a.spd != null ? Math.round(a.spd) + ' kt' : '—'}<br><a href="https://globe.adsbexchange.com/?icao=${esc(a.id)}" target="_blank" rel="noopener">Ver no ADS-B Exchange</a>`).addTo(l.group);
+    L.marker([a.lat, a.lon], {icon}).bindPopup(`<b>${esc(a.cs || a.id)}</b><br>Modelo: ${a.type ? esc(a.type) : NA}<br>Registro: ${a.reg ? esc(a.reg) : NA}<br>Altitude: ${a.alt === 'ground' ? 'no solo' : a.alt != null ? fmt(a.alt) + ' ft' : NA}<br>Velocidade: ${a.spd != null ? Math.round(a.spd) + ' kt' : NA}<br><a href="https://globe.adsbexchange.com/?icao=${esc(a.id)}" target="_blank" rel="noopener">Ver no ADS-B Exchange</a>`).addTo(l.group);
   });
   setStatus('fly', `${fmt(list.length)} · ${used}`);
 }
@@ -300,7 +306,7 @@ async function loadShips(){
       const [lon, lat] = f.geometry.coordinates; if (!b.contains([lat, lon]) || n > 3000) continue; n++;
       const p = f.properties;
       mk([lat, lon], {shape:'tri', rot:(p.cog != null && p.cog < 360) ? p.cog : 0, radius:6, color:'#0b0f14', weight:1, fillColor:'#4cc9f0', fillOpacity:.95})
-        .bindPopup(`<b>MMSI ${p.mmsi ?? f.mmsi}</b><br>Velocidade: ${p.sog ?? '—'} nós<br>Rumo: ${p.cog ?? '—'}°<br><a href="https://www.myshiptracking.com/?mmsi=${p.mmsi ?? f.mmsi}" target="_blank" rel="noopener">Detalhes</a>`).addTo(l.group);
+        .bindPopup(`<b>MMSI ${p.mmsi ?? f.mmsi}</b><br>Velocidade: ${p.sog != null ? p.sog + ' nós' : NA}<br>Rumo: ${p.cog != null && p.cog < 360 ? p.cog + '°' : NA}<br><a href="https://www.myshiptracking.com/?mmsi=${p.mmsi ?? f.mmsi}" target="_blank" rel="noopener">Detalhes</a>`).addTo(l.group);
     }
     setStatus('ship', n ? `${fmt(n)} na tela` : 'só no Báltico');
   } catch(e){ setStatus('ship', 'erro', true); }
@@ -336,24 +342,45 @@ async function loadEvents(){
 }
 
 /* OpenStreetMap via Overpass: câmeras mapeadas pela comunidade e usinas */
-async function overpass(id, query, minZoom, draw){
+const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
+let ovIdx = 0, ovQueue = Promise.resolve();
+const ovLast = {};
+async function overpassFetch(q){
+  let lastErr;
+  for (let i = 0; i < OVERPASS.length; i++) {
+    const url = OVERPASS[(ovIdx + i) % OVERPASS.length];
+    try {
+      const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 30000);
+      const r = await fetch(url, {method:'POST', body:'data=' + encodeURIComponent(q), signal:ctl.signal}); clearTimeout(t);
+      if (!r.ok) throw new Error(r.status);
+      ovIdx = (ovIdx + i) % OVERPASS.length; return await r.json();
+    } catch(e){ lastErr = e; }
+  }
+  throw lastErr;
+}
+function overpass(id, query, minZoom, draw){
   const l = byId[id];
-  if (map.getZoom() < minZoom) { l.group.clearLayers(); setStatus(id, 'aproxime o mapa'); return; }
-  const b = map.getBounds(), bbox = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()].map(n => n.toFixed(4)).join(',');
+  if (map.getZoom() < minZoom) { l.group.clearLayers(); ovLast[id] = null; setStatus(id, 'aproxime o mapa'); return; }
+  const view = map.getBounds();
+  if (ovLast[id] && ovLast[id].contains(view)) return;          // já temos essa área
+  const b = view.pad(0.3), bbox = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()].map(n => n.toFixed(4)).join(',');
   setStatus(id, '…');
-  try {
-    const d = await getJSON('https://overpass-api.de/api/interpreter', {method:'POST', body:'data=' + encodeURIComponent(`[out:json][timeout:25];${query.replaceAll('BBOX', bbox)}`)});
-    l.group.clearLayers();
-    d.elements.forEach(el => { const lat = el.lat ?? el.center?.lat, lon = el.lon ?? el.center?.lon; if (lat != null) draw(el, lat, lon).addTo(l.group); });
-    setStatus(id, fmt(d.elements.length));
-  } catch(e){ setStatus(id, 'Overpass ocupado', true); }
+  ovQueue = ovQueue.then(async () => {                            // uma consulta por vez, para não ser bloqueado
+    try {
+      const d = await overpassFetch(`[out:json][timeout:25];${query.replaceAll('BBOX', bbox)}`);
+      l.group.clearLayers(); ovLast[id] = b;
+      d.elements.forEach(el => { const lat = el.lat ?? el.center?.lat, lon = el.lon ?? el.center?.lon; if (lat != null) draw(el, lat, lon).addTo(l.group); });
+      setStatus(id, fmt(d.elements.length));
+    } catch(e){ setStatus(id, 'servidores OSM ocupados, tente de novo', true); }
+  });
 }
 const loadOsm = () => overpass('osm', 'node["man_made"="surveillance"](BBOX);out 4000;', 10, (el, lat, lon) =>
   mk([lat, lon], {shape:'square', radius:5, color:'#0b0f14', weight:1, fillColor:'#c77dff', fillOpacity:.95})
-    .bindPopup(`<b>Câmera mapeada no OSM</b><br>Tipo: ${esc(el.tags?.['surveillance:type'] || el.tags?.surveillance || '—')}<br>${el.tags?.operator ? 'Operador: ' + esc(el.tags.operator) + '<br>' : ''}<small>Sem imagem pública</small>`));
+    .bindPopup(`<b>Câmera mapeada no OSM</b><br>Tipo: ${esc(el.tags?.['surveillance:type'] || el.tags?.surveillance || NA)}<br>Operador: ${esc(el.tags?.operator || NA)}<br><small>Sem imagem pública</small>`));
 const loadPow = () => overpass('pow', 'nwr["power"="plant"](BBOX);out center 800;', 7, (el, lat, lon) =>
   mk([lat, lon], {shape:'hex', radius:8, color:'#0b0f14', weight:1, fillColor:'#f72585', fillOpacity:.95})
-    .bindPopup(`<b>${esc(el.tags?.name || 'Usina')}</b><br>Fonte: ${esc(el.tags?.['plant:source'] || '—')}<br>${el.tags?.['plant:output:electricity'] ? 'Potência: ' + esc(el.tags['plant:output:electricity']) : ''}`));
+    .bindPopup(`<b>${esc(el.tags?.name || 'Usina sem nome')}</b><br>Fonte: ${esc(el.tags?.['plant:source'] || NA)}<br>Potência: ${esc(el.tags?.['plant:output:electricity'] || NA)}<br>Operador: ${esc(el.tags?.operator || NA)}`));
 
 
 /* Satélites: TLE + catálogo da CelesTrak (baixados pela Action), posição por SGP4 no navegador */
@@ -424,6 +451,7 @@ async function wikiFor(name){
     const d = await getJSON(url);
     const page = Object.values(d.query?.pages || {})[0];
     if (!page || page.missing !== undefined) return null;
+    if (!q.title && !wikiMatches(name, page.title)) return null; // busca sem correspondência clara: não mostra nada
     let res = {title:page.title, text:page.extract, img:page.thumbnail?.source, url:'https://en.wikipedia.org/wiki/' + encodeURIComponent(page.title.replace(/ /g, '_'))};
     const pt = page.langlinks?.[0]?.['*'];
     if (pt) try {
@@ -433,6 +461,14 @@ async function wikiFor(name){
     return res;
   })().catch(() => null);
   wikiCache.set(name, job); return job;
+}
+/* aceita o artigo só se o título contém a parte principal do nome do satélite (ex.: "NOAA 19" ↔ "NOAA-19") */
+function wikiMatches(name, title){
+  const norm = t => t.toUpperCase().replace(/\(.*?\)/g, ' ').replace(/[^A-Z0-9]+/g, ' ').trim();
+  const n = norm(name).split(' ').filter(Boolean), t = ' ' + norm(title).replace(/ /g, '') + ' ';
+  if (!n.length) return false;
+  const core = n.slice(0, Math.min(2, n.length)).join('');
+  return core.length >= 3 && t.includes(core);
 }
 function trimText(t, max = 260){ if (!t) return ''; if (t.length <= max) return t; const c = t.slice(0, max); return c.slice(0, c.lastIndexOf(' ')) + '…'; }
 
@@ -456,12 +492,12 @@ function showSat(s){
   const orbit = a - R_EARTH > 30000 ? (incl < 5 && rec.ecco < .05 ? 'Geoestacionária (GEO)' : 'Geossíncrona/alta') : peri < 2000 && apo > 10000 ? 'Altamente elíptica (HEO)' : a - R_EARTH > 2000 ? 'Média (MEO)' : 'Baixa (LEO)';
   const stat = (k, v) => `<div><span>${k}</span><b>${v}</b></div>`;
   const statsHtml = p => `
-        ${stat('Velocidade', p.v ? fmt(Math.round(p.v * 3600)) + ' km/h' : '—')}
+        ${stat('Velocidade', p.v ? fmt(Math.round(p.v * 3600)) + ' km/h' : NA)}
         ${stat('Altitude', fmt(Math.round(p.alt)) + ' km')}
-        ${stat('País/operador', esc(OWNER[s.own] || s.own || '—'))}
-        ${stat('Lançamento', s.ld ? new Date(s.ld + 'T12:00').toLocaleDateString('pt-BR') : yr || '—')}
-        ${stat('Em órbita há', age != null ? (age < 1 ? 'menos de 1 ano' : age + (age === 1 ? ' ano' : ' anos')) : '—')}
-        ${stat('Local de lançamento', esc(SITE[s.site] || s.site || '—'))}
+        ${stat('País/operador', esc(OWNER[s.own] || s.own || NA))}
+        ${stat('Lançamento', s.ld ? new Date(s.ld + 'T12:00').toLocaleDateString('pt-BR') : yr ? 'ano ' + yr : NA)}
+        ${stat('Em órbita há', age != null ? (age < 1 ? 'menos de 1 ano' : age + (age === 1 ? ' ano' : ' anos')) : NA)}
+        ${stat('Local de lançamento', esc(SITE[s.site] || s.site || NA))}
         ${stat('Tipo de órbita', orbit)}
         ${stat('Volta na Terra', period < 120 ? Math.round(period) + ' min' : (period / 60).toFixed(1) + ' h')}
         ${stat('Voltas por dia', (1440 / period).toFixed(1))}
@@ -469,20 +505,20 @@ function showSat(s){
         ${stat('Apogeu / perigeu', fmt(Math.round(apo)) + ' / ' + fmt(Math.round(peri)) + ' km')}
         ${stat('Posição', p.lat.toFixed(2) + ', ' + p.lon.toFixed(2))}
         ${stat('NORAD', rec.satnum)}
-        ${stat('Designação', esc(s.id || s.l1.slice(9, 17).trim()))}`;
+        ${stat('Designação', esc(s.id || s.l1.slice(9, 17).trim() || NA))}`;
   const pNow = s.p || satPos(rec, new Date());
   body.innerHTML = `<h2>${esc(s.name)}</h2>
-      <div class="meta"><span class="tag" style="background:${col}">${esc(cat)}</span>${s.type ? esc(TYPE[s.type] || s.type) : ''}</div>
+      <div class="meta"><span class="tag" style="background:${col}">${esc(cat)}</span>${esc(s.type ? (TYPE[s.type] || s.type) : 'tipo de objeto: ' + NA)}</div>
       <div class="wiki loading" id="wiki"><p>Buscando foto e descrição…</p></div>
       <div class="stats" id="satStats">${statsHtml(pNow)}</div>
       <div class="meta">Linha tracejada: uma volta completa. Círculo: área de onde ele está visível agora.</div>
       <div class="row"><a href="https://www.n2yo.com/satellite/?s=${rec.satnum}" target="_blank" rel="noopener">Passagens sobre você (N2YO)</a> <a href="https://celestrak.org/satcat/table-satcat.php?CATNR=${rec.satnum}" target="_blank" rel="noopener">Catálogo</a></div>`;
   wikiFor(s.name).then(w => {
     const box = $('#wiki'); if (!box || satSel !== s) return;
-    if (!w || (!w.img && !w.text)) { box.remove(); return; }
+    if (!w || (!w.img && !w.text)) { box.className = 'wiki'; box.innerHTML = '<p style="grid-column:1/-1;color:var(--mute)">Foto e descrição: sem informação na Wikipédia.</p>'; return; }
     box.className = 'wiki';
     box.innerHTML = `${w.img ? `<img src="${esc(w.img)}" alt="${esc(w.title)}" loading="lazy">` : ''}<div style="${w.img ? '' : 'grid-column:1/-1'}"><p>${esc(trimText(w.text))}</p>
-      <small>Wikipédia: <a href="${esc(w.url)}" target="_blank" rel="noopener" style="color:var(--cam)">${esc(w.title)}</a>${/satellite|rocket/.test(wikiQuery(s.name).search || '') ? ' · resultado aproximado' : ''}</small></div>`;
+      <small>Wikipédia: <a href="${esc(w.url)}" target="_blank" rel="noopener" style="color:var(--cam)">${esc(w.title)}</a></small></div>`;
     const im = box.querySelector('img'); if (im) im.onerror = () => im.remove();
   });
   const render = () => {
@@ -508,7 +544,7 @@ const loadCab = () => staticLayer('cab', 'cables.json', (d, g) => {
   return fmt(d.features.length); });
 const loadApt = () => { aptZoom(); return staticLayer('apt', 'airports.json', (d, g) => {
   d.forEach(a => mk([a[0], a[1]], {shape:'plus', radius:a[6] === 'G' ? 8 : 6, weight:1, color:'#0b0f14', fillColor:'#e9c46a', fillOpacity:.95})
-    .bindPopup(`<b>${esc(a[2])}</b>${a[3] ? ' (' + esc(a[3]) + ')' : ''}<br>${esc(a[4])} · ${esc(a[5])}<br>${a[6] === 'G' ? 'Grande porte' : 'Médio porte'}`).addTo(g));
+    .bindPopup(`<b>${esc(a[2])}</b>${a[3] ? ' (' + esc(a[3]) + ')' : ''}<br>Cidade: ${esc(a[4] || NA)} · País: ${esc(a[5] || NA)}<br>${a[6] === 'G' ? 'Grande porte' : 'Médio porte'}`).addTo(g));
   setTimeout(aptZoom); return fmt(d.length); }); };
 /* aeroportos só a partir do zoom 4, para não cobrir o mapa-múndi */
 function aptZoom(){ const l = byId.apt; if (!l.on) return; const show = map.getZoom() >= 4;
@@ -522,7 +558,7 @@ const loadWar = () => staticLayer('war', 'frontline.json', (d, g) => {
 
 /* Créditos */
 $('#infobtn').onclick = () => { clearInterval(camTimer); openSheet(`<h2>Fontes</h2><div class="meta">Dados públicos e gratuitos, usados para fins não comerciais.</div>
-  <p style="font-size:14px">Câmeras: Powered by TfL Open Data · Digitraffic/Fintraffic (CC BY 4.0) · NYC DOT · Caltrans · DriveBC · NZTA · Iowa DOT · Road511 (20 estados dos EUA)<br>
+  <p style="font-size:14px">Câmeras: OpenCCTV (catálogo) · ANTT (dados abertos) · Powered by TfL Open Data · Digitraffic/Fintraffic (CC BY 4.0) · NYC DOT · Caltrans · DriveBC · NZTA · Iowa DOT · Road511 (20 estados dos EUA)<br>
   Voos: airplanes.live · adsb.lol · OpenSky Network<br>Navios: Digitraffic (CC BY 4.0)<br>Satélites: CelesTrak · Terremotos: USGS · Eventos: NASA EONET<br>
   Cabos: TeleGeography Submarine Cable Map · Aeroportos: OurAirports · Frente: DeepStateMap<br>Mapa: Esri, OpenStreetMap · Busca e camadas OSM: Nominatim, Overpass</p>`); };
 
