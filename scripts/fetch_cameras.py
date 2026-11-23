@@ -179,6 +179,7 @@ def road511():
         try:
             out += road511_state(st)
         except Exception as e:
+            PROBE.setdefault("road511_errors", {})[st] = str(e)[:160]
             print(f"  road511 {st}: {e}", file=sys.stderr)
     return out
 
@@ -189,13 +190,13 @@ PROBE = {}
 # ---------- ANTT: câmeras das rodovias federais concedidas (dados abertos) ----------
 def antt():
     # O endereço do arquivo muda a cada atualização: pergunta ao catálogo (CKAN) qual é o atual.
-    pkg = get("https://dados.antt.gov.br/api/3/action/package_show", params={"id": "cftv"})["result"]
+    pkg = get("https://dados.antt.gov.br/api/3/action/package_show", params={"id": "cftv"}, timeout=180)["result"]
     res = [r for r in pkg.get("resources", []) if (r.get("format") or "").lower() == "json" or r.get("url", "").endswith(".json")]
     PROBE["antt_resources"] = [(r.get("name"), r.get("url")) for r in res][:6]
     d = None
     for r in res:
         try:
-            d = get(r["url"], timeout=90); break
+            d = get(r["url"], timeout=240); break
         except Exception as e:
             PROBE.setdefault("antt_errors", []).append(f"{r.get('url')}: {e}")
     if d is None:

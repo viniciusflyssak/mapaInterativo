@@ -90,8 +90,24 @@ def frontline():
     return len(feats)
 
 
+def powerplants():
+    """WRI Global Power Plant Database (CC BY 4.0), ~35 mil usinas; última versão publicada em 2021."""
+    rows = csv.DictReader(io.StringIO(get("https://raw.githubusercontent.com/wri/global-power-plant-database/master/output_database/global_power_plant_database.csv", 180)))
+    out = []
+    for r in rows:
+        try:
+            lat, lon = round(float(r["latitude"]), 4), round(float(r["longitude"]), 4)
+        except (ValueError, KeyError):
+            continue
+        cap = r.get("capacity_mw") or ""
+        out.append([lat, lon, r.get("name", ""), r.get("primary_fuel", ""), round(float(cap), 1) if cap else None,
+                    r.get("owner", ""), r.get("commissioning_year", "")[:4], r.get("country_long", "")])
+    save("powerplants.json", out)
+    return len(out)
+
+
 if __name__ == "__main__":
-    for name, fn in [("satélites", satellites), ("cabos", cables), ("aeroportos", airports), ("frente", frontline)]:
+    for name, fn in [("satélites", satellites), ("cabos", cables), ("aeroportos", airports), ("frente", frontline), ("usinas", powerplants)]:
         try:
             print(f"{name:11} {fn()}")
         except Exception as e:

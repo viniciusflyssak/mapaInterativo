@@ -26,8 +26,9 @@ Mapa interativo ao vivo inspirado no **Argos Atlas** (argosatlas.com), feito só
 - **Cabos submarinos**, **Aeroportos** (grandes/médios com voos regulares, só a partir do zoom 4), **Frente Ucrânia**: arquivos estáticos em `data/`.
 - **Navios**: mundo todo via **AISStream** (chave gratuita no secret `AISSTREAM_KEY`; `scripts/fetch_ships.py` escuta 150 s a cada hora pela Action `ships.yml` e publica `ships.json` numa branch órfã `data-live`, sobrescrita com force-push; o site lê de raw.githubusercontent.com) + Báltico ao vivo pela Digitraffic. Cor da seta por tipo AIS (carga, tanque, passageiros, pesca...), popup com "há X min".
 - **Terremotos**: USGS M2.5+ 7 dias. **Eventos**: NASA EONET (incêndios, tempestades, vulcões).
-- **Câmeras OSM** (zoom ≥ 10, até 4.000 por área; 4 espelhos do Overpass em rodízio, fila de 1 consulta por vez, reaproveita a área já carregada) e **Usinas** (zoom ≥ 7): Overpass API.
-- Mapa base: Esri World Dark Gray (Base + Reference). A CARTO passou a exigir chave e foi removida.
+- **Vigilância (OSM)** (antes "Câmeras OSM"; câmeras de segurança mapeadas por voluntários, sem imagem; zoom ≥ 10, até 4.000 por área; 4 espelhos do Overpass em rodízio, fila de 1 consulta por vez, reaproveita a área já carregada).
+- **Usinas**: base global WRI Global Power Plant Database (CC BY 4.0, ~35 mil, versão de 2021) baixada pela Action em `data/powerplants.json` `[lat, lon, nome, combustível, MW, operador, ano, país]`; cor do hexágono por fonte de energia.
+- Mapa base: botão `#basebtn` alterna Esri World Dark Gray (Base + Reference) e **satélite** Esri World_Imagery + Reference/World_Boundaries_and_Places; escolha lembrada. A CARTO passou a exigir chave e foi removida.
 - **Fusos horários** (camada `tz`): sombra da noite + linha tracejada (posição do Sol pelo Almanaque Astronômico), etiquetas com hora local de ~36 cidades (fuso IANA fixo; hora e diferença calculadas pelo `Intl`, com horário de verão correto), etiquetas sobrepostas são escondidas (`declutterTz`). Toque no mapa com a camada ligada mostra a hora local do ponto (fuso pelo Open-Meteo `timezone=auto`; se falhar, "sem informação").
 - Busca de local: Nominatim.
 - **Ícones**: classe `Shape` (CircleMarker em canvas com formatos): navio = seta no rumo, terremoto = anel, evento = losango colorido por tipo, OSM = quadrado, usina = hexágono, satélite e Starlink = corpo + painéis (no mapa e na legenda), aeroporto = cruz. Ícone do mapa e da legenda devem ser sempre iguais. Botões das camadas têm o mesmo ícone (`ICO`).
@@ -40,12 +41,14 @@ Mapa interativo ao vivo inspirado no **Argos Atlas** (argosatlas.com), feito só
 - 2026-11-23: foco na América do Sul (OpenCCTV + ANTT), câmeras só com vídeo/iframe, Overpass com espelhos, regra de não inventar dados.
 - 2026-11-23: navios globais (AISStream), ícone de Starlink no mapa, OpenCCTV removido, ANTT via CKAN.
 - 2026-11-23: filtro de câmeras por vídeo/foto e camada de fusos horários com dia/noite.
+- 2026-11-23: seletor mapa/satélite, usinas globais (WRI), "Vigilância (OSM)" com explicação.
 - Licenças: projeto pessoal e não comercial. airplanes.live, adsb.fi e OpenSky são só para uso não comercial; manter créditos (TfL, Digitraffic CC BY, cabos CC BY-NC-SA).
 - Página hospedada como artifact do Claude não serve: a CSP bloqueia fetch externo e imagens remotas.
 
 ## Pendências
 0. Navios: criar chave em aisstream.io e salvar como secret `AISSTREAM_KEY` no repo; depois rodar "Atualizar navios".
 1. Voos: importar o repo na Vercel (vercel.com, login com GitHub) para ativar `api/flights.js`; o site passa a ser o endereço da Vercel.
+1b. Road511 e ANTT falharam (ver `probe.road511_errors` e `antt` em `sources.json`).
 2. Verificar quais camadas aparecem com erro (status em vermelho no botão).
 3. Conferir `data/sources.json` (contagem por fonte e `probe` com amostras da ANTT/OpenCCTV) e ajustar os parsers.
 4. Ideias: mais câmeras do Brasil (concessionárias, prefeituras), Windy Webcams com chave opcional, AIS global (AISStream exige chave e servidor), outras frentes de guerra.
