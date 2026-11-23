@@ -27,7 +27,7 @@ form.search button{border:0;border-left:1px solid var(--line);border-radius:0}
 .chips::-webkit-scrollbar{display:none}
 .chip{flex:none;display:flex;align-items:center;gap:7px;padding:8px 11px;border-radius:999px;font-size:13px;min-height:38px;opacity:.55}
 .chip.on{opacity:1}
-.chip i{width:9px;height:9px;border-radius:50%;background:var(--c);box-shadow:0 0 8px var(--c)}
+.chip svg{width:16px;height:16px;flex:none;color:var(--c);filter:drop-shadow(0 0 4px var(--c))}
 .chip small{color:var(--mute);font-weight:400}
 .chip small.err{color:var(--quake)}
 .sheet{position:fixed;z-index:1001;left:0;right:0;bottom:0;max-height:62vh;background:var(--panel);border-top:1px solid var(--line);border-radius:16px 16px 0 0;padding:14px 14px calc(env(safe-area-inset-bottom) + 14px);transform:translateY(105%);transition:transform .25s;overflow:auto;backdrop-filter:blur(8px)}
@@ -43,8 +43,13 @@ form.search button{border:0;border-left:1px solid var(--line);border-radius:0}
 .grid figure{margin:0}.grid figcaption{font-size:12px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .empty{color:var(--mute);font-size:14px}
 .hint{position:fixed;z-index:999;left:50%;bottom:calc(env(safe-area-inset-bottom) + 16px);transform:translateX(-50%);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 14px;font-size:13px;color:var(--mute);white-space:nowrap;pointer-events:none;transition:opacity .3s}
-.plane{color:var(--fly);font-size:20px;line-height:1;text-shadow:0 0 4px #000;transform-origin:center}
-.camdot{width:14px;height:14px;border-radius:50%;background:var(--cam);border:2px solid #0b0f14;box-shadow:0 0 6px var(--cam)}
+.plane{color:var(--fly);transform-origin:center;filter:drop-shadow(0 0 2px #000)}.plane svg{width:24px;height:24px}
+.cam{width:22px;height:22px;border-radius:6px;background:#0b0f14;border:1.5px solid var(--cam);display:grid;place-items:center;box-shadow:0 0 6px rgba(61,220,151,.6);position:relative}
+.cam svg{width:14px;height:14px;color:var(--cam)}
+.cam.v::after{content:'';position:absolute;top:-3px;right:-3px;width:8px;height:8px;border-radius:50%;background:#ff3b3b;border:1.5px solid #0b0f14}
+.vidwrap{position:relative}.vidwrap video{width:100%;border-radius:10px;background:#000;display:block;max-height:50vh}
+.live{display:inline-flex;align-items:center;gap:6px}.live::before{content:'';width:8px;height:8px;border-radius:50%;background:#ff3b3b}
+.err{color:var(--quake);font-size:13px;margin-top:6px}
 .marker-cluster{background:rgba(61,220,151,.22)!important;border-radius:50%}
 .marker-cluster div{background:rgba(61,220,151,.9)!important;color:#06140e;font:700 12px Inter,sans-serif;border-radius:50%}
 .leaflet-container{font:inherit;background:#0b0f14}
@@ -81,6 +86,7 @@ form.search button{border:0;border-left:1px solid var(--line);border-radius:0}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/satellite.js@4.1.4/dist/satellite.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
 <script>
 {
 const $ = s => document.querySelector(s);
@@ -98,28 +104,89 @@ map.createPane('labels'); map.getPane('labels').style.zIndex = 350; map.getPane(
 L.tileLayer(ESRI + 'World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {maxZoom:19, maxNativeZoom:16, pane:'labels'}).addTo(map);
 map.on('moveend', () => store.set('mirante:view', {c:[map.getCenter().lat, map.getCenter().lng], z:map.getZoom()}));
 
+/* Marcador em canvas com formatos diferentes (mantém o desempenho com milhares de pontos) */
+const Shape = L.CircleMarker.extend({
+  options:{shape:'circle', rot:0},
+  _updatePath(){
+    const r = this._renderer; if (!r._drawing || this._empty()) return;
+    const ctx = r._ctx, {x, y} = this._point, s = Math.max(this._radius, 1), o = this.options;
+    const poly = pts => { pts.forEach(([px, py], i) => i ? ctx.lineTo(px, py) : ctx.moveTo(px, py)); ctx.closePath(); };
+    const rot = (dx, dy) => { const a = (o.rot || 0) * Math.PI / 180; return [x + dx * Math.cos(a) - dy * Math.sin(a), y + dx * Math.sin(a) + dy * Math.cos(a)]; };
+    ctx.beginPath();
+    switch (o.shape) {
+      case 'square': ctx.rect(x - s, y - s, 2 * s, 2 * s); break;
+      case 'diamond': poly([[x, y - s * 1.3], [x + s, y], [x, y + s * 1.3], [x - s, y]]); break;
+      case 'hex': poly([...Array(6)].map((_, i) => [x + s * Math.cos(Math.PI / 3 * i), y + s * Math.sin(Math.PI / 3 * i)])); break;
+      case 'tri': poly([rot(0, -s * 1.5), rot(s * .9, s), rot(0, s * .45), rot(-s * .9, s)]); break;
+      case 'plus': { const w = s * .38; poly([[x - w, y - s], [x + w, y - s], [x + w, y - w], [x + s, y - w], [x + s, y + w], [x + w, y + w], [x + w, y + s], [x - w, y + s], [x - w, y + w], [x - s, y + w], [x - s, y - w], [x - w, y - w]]); break; }
+      case 'sat': { const b = s * .45; ctx.rect(x - b, y - b, 2 * b, 2 * b); ctx.rect(x - s * 1.6, y - b * .7, s * 1.6 - b - 1.5, b * 1.4); ctx.rect(x + b + 1.5, y - b * .7, s * 1.6 - b - 1.5, b * 1.4); break; }
+      default: ctx.arc(x, y, s, 0, Math.PI * 2);
+    }
+    r._fillStroke(ctx, this);
+  }
+});
+const mk = (ll, opt) => new Shape(ll, opt);
+const ICO = {
+  cam:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 7h3l1.5-2h7L17 7h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1zm8 3a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7z"/></svg>',
+  fly:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/></svg>',
+  ship:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l6 18-6-4-6 4z"/></svg>',
+  quake:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="8"/></svg>',
+  evt:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 1l8 11-8 11-8-11z"/></svg>',
+  osm:'<svg viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>',
+  pow:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 12l-4.5 7.8h-9L3 12l4.5-7.8h9z"/></svg>',
+  sat:'<svg viewBox="0 0 24 24" fill="currentColor"><rect x="9" y="9" width="6" height="6"/><rect x="1" y="10" width="7" height="4"/><rect x="16" y="10" width="7" height="4"/></svg>',
+  stl:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="6" cy="12" r="2.5"/><circle cx="12" cy="12" r="2.5"/><circle cx="18" cy="12" r="2.5"/></svg>',
+  cab:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M2 15c4-8 8 4 12-4s6 2 8 0"/></svg>',
+  apt:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 2h6v7h7v6h-7v7H9v-7H2V9h7z"/></svg>',
+  war:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 2h2v20H4zM7 3h13l-3 5 3 5H7z"/></svg>',
+};
+const CAM_SVG = ICO.cam;
+
 const hint = $('#hint');
 let hintT; const say = (t, ms=3500) => { hint.textContent = t; hint.style.opacity = 1; clearTimeout(hintT); if (ms) hintT = setTimeout(() => hint.style.opacity = 0, ms); };
 
 /* ---------- painel inferior ---------- */
 const sheet = $('#sheet'), body = $('#sheetBody');
 let camTimer;
-function openSheet(html){ body.innerHTML = html; sheet.classList.add('open'); }
-function closeSheet(){ sheet.classList.remove('open'); clearInterval(camTimer); }
+function openSheet(html){ stopVideo(); body.innerHTML = html; sheet.classList.add('open'); }
+function closeSheet(){ sheet.classList.remove('open'); clearInterval(camTimer); stopVideo(); }
 $('#close').onclick = closeSheet;
 const bust = u => u + (u.includes('?') ? '&' : '?') + '_=' + Date.now();
 
 let favs = store.get('mirante:favs', []);
+let hls = null;
+function stopVideo(){ if (hls) { hls.destroy(); hls = null; } const v = $('#vid'); if (v) { v.pause(); v.removeAttribute('src'); v.load(); } }
+function playVideo(url, box){
+  stopVideo();
+  box.innerHTML = '<video id="vid" playsinline muted autoplay controls></video>';
+  const v = $('#vid'), fail = () => { stopVideo(); box.innerHTML = '<div class="err">O vídeo desta câmera não abriu agora. Mostrando a imagem.</div>'; };
+  v.onerror = fail;
+  if (/\.m3u8(\?|$)/i.test(url) && window.Hls && Hls.isSupported()) {
+    hls = new Hls({maxBufferLength:10});
+    hls.on(Hls.Events.ERROR, (e, d) => { if (d.fatal) fail(); });
+    hls.loadSource(url); hls.attachMedia(v);
+  } else v.src = url;
+  v.play().catch(() => {});
+}
 function showCam(c){
+  stopVideo();
   const [lat, lon, name, img, src, video] = c;
   const isFav = favs.some(f => f[3] === img);
-  openSheet(`<h2>${esc(name)}</h2><div class="meta">${esc(src)} · ${lat.toFixed(4)}, ${lon.toFixed(4)} · atualiza a cada 15 s</div>
+  openSheet(`<h2>${esc(name)}</h2><div class="meta">${esc(src)} · ${lat.toFixed(4)}, ${lon.toFixed(4)}${video ? '' : ' · imagem atualiza a cada 15 s'}</div>
+    <div class="vidwrap" id="vbox"></div>
     <img class="shot" id="shot" alt="Imagem da câmera ${esc(name)}" src="${esc(bust(img))}">
-    <div class="row"><button id="fav">${isFav ? '★ Remover dos favoritos' : '☆ Favoritar'}</button>
-    <a href="${esc(img)}" target="_blank" rel="noopener">Abrir imagem</a>${video ? ` <a href="${esc(video)}" target="_blank" rel="noopener">Vídeo</a>` : ''}</div>`);
-  const shot = $('#shot');
+    <div class="row">${video ? '<button id="play" class="live">Ver ao vivo</button>' : ''}<button id="fav">${isFav ? '★ Remover dos favoritos' : '☆ Favoritar'}</button>
+    <a href="${esc(img)}" target="_blank" rel="noopener">Abrir imagem</a></div>`);
+  const shot = $('#shot'), vbox = $('#vbox');
   shot.onerror = () => { shot.alt = 'Imagem indisponível agora'; };
-  clearInterval(camTimer); camTimer = setInterval(() => { shot.src = bust(img); }, 15000);
+  clearInterval(camTimer); camTimer = setInterval(() => { if (shot.isConnected && shot.style.display !== 'none') shot.src = bust(img); }, 15000);
+  if (video) $('#play').onclick = () => {
+    const on = !$('#vid');
+    if (on) { shot.style.display = 'none'; playVideo(video, vbox); $('#play').textContent = 'Voltar à imagem'; }
+    else { stopVideo(); vbox.innerHTML = ''; shot.style.display = ''; $('#play').textContent = 'Ver ao vivo'; }
+    const obs = new MutationObserver(() => { if (vbox.querySelector('.err')) { shot.style.display = ''; $('#play')?.remove(); obs.disconnect(); } });
+    obs.observe(vbox, {childList:true});
+  };
   $('#fav').onclick = () => {
     favs = isFav ? favs.filter(f => f[3] !== img) : [...favs, c];
     store.set('mirante:favs', favs); showCam(c);
@@ -156,7 +223,7 @@ LAYERS.forEach(l => { if (l.id in state) l.on = state[l.id]; l.group = l.id === 
   : L.layerGroup(); });
 const byId = Object.fromEntries(LAYERS.map(l => [l.id, l]));
 
-$('#chips').innerHTML = LAYERS.map(l => `<button class="chip" id="chip-${l.id}" style="--c:${l.c}" aria-pressed="false"><i></i>${l.name} <small id="st-${l.id}"></small></button>`).join('');
+$('#chips').innerHTML = LAYERS.map(l => `<button class="chip" id="chip-${l.id}" style="--c:${l.c}" aria-pressed="false">${ICO[l.id] || ''}${l.name} <small id="st-${l.id}"></small></button>`).join('');
 function setStatus(id, txt, err){ const s = $('#st-' + id); s.textContent = txt; s.className = err ? 'err' : ''; }
 function paint(l){ const b = $('#chip-' + l.id); b.classList.toggle('on', l.on); b.setAttribute('aria-pressed', l.on); }
 LAYERS.forEach(l => {
@@ -179,9 +246,11 @@ async function loadCams(){
   try {
     const cams = await getJSON('data/cameras.json', {cache:'no-cache'});
     if (!cams.length) { setStatus('cam', 'aguardando Action', true); return; }
-    const icon = L.divIcon({className:'', html:'<div class="camdot"></div>', iconSize:[14,14]});
-    l.group.addLayers(cams.map(c => L.marker([c[0], c[1]], {icon, title:c[2]}).on('click', () => showCam(c))));
-    camsLoaded = true; setStatus('cam', fmt(cams.length));
+    const icon = L.divIcon({className:'', html:`<div class="cam">${CAM_SVG}</div>`, iconSize:[22,22]});
+    const iconV = L.divIcon({className:'', html:`<div class="cam v">${CAM_SVG}</div>`, iconSize:[22,22]});
+    l.group.addLayers(cams.map(c => L.marker([c[0], c[1]], {icon:c[5] ? iconV : icon, title:c[2]}).on('click', () => showCam(c))));
+    const nv = cams.filter(c => c[5]).length;
+    camsLoaded = true; setStatus('cam', `${fmt(cams.length)} · ${fmt(nv)} com vídeo`);
   } catch(e){ setStatus('cam', 'erro', true); }
 }
 
@@ -214,7 +283,7 @@ async function loadFlights(){
   if (!list) { setStatus('fly', (PROXY || hasApi) ? 'fontes indisponíveis' : 'precisa do proxy', true); return; }
   l.group.clearLayers();
   list.filter(a => a.lat != null && a.lon != null).forEach(a => {
-    const icon = L.divIcon({className:'', iconSize:[24,24], html:`<div class="plane" style="transform:rotate(${a.trk - 45}deg)">✈</div>`});
+    const icon = L.divIcon({className:'', iconSize:[24,24], html:`<div class="plane" style="transform:rotate(${a.trk}deg);width:24px;height:24px">${ICO.fly}</div>`});
     L.marker([a.lat, a.lon], {icon}).bindPopup(`<b>${esc(a.cs || a.id)}</b><br>${a.type ? esc(a.type) + '<br>' : ''}${a.reg ? esc(a.reg) + '<br>' : ''}Altitude: ${a.alt === 'ground' ? 'no solo' : a.alt != null ? fmt(a.alt) + ' ft' : '—'}<br>Velocidade: ${a.spd != null ? Math.round(a.spd) + ' kt' : '—'}<br><a href="https://globe.adsbexchange.com/?icao=${esc(a.id)}" target="_blank" rel="noopener">Ver no ADS-B Exchange</a>`).addTo(l.group);
   });
   setStatus('fly', `${fmt(list.length)} · ${used}`);
@@ -230,7 +299,7 @@ async function loadShips(){
     for (const f of shipCache) {
       const [lon, lat] = f.geometry.coordinates; if (!b.contains([lat, lon]) || n > 3000) continue; n++;
       const p = f.properties;
-      L.circleMarker([lat, lon], {radius:6, color:'#0b0f14', weight:1, fillColor:'#4cc9f0', fillOpacity:.9})
+      mk([lat, lon], {shape:'tri', rot:(p.cog != null && p.cog < 360) ? p.cog : 0, radius:6, color:'#0b0f14', weight:1, fillColor:'#4cc9f0', fillOpacity:.95})
         .bindPopup(`<b>MMSI ${p.mmsi ?? f.mmsi}</b><br>Velocidade: ${p.sog ?? '—'} nós<br>Rumo: ${p.cog ?? '—'}°<br><a href="https://www.myshiptracking.com/?mmsi=${p.mmsi ?? f.mmsi}" target="_blank" rel="noopener">Detalhes</a>`).addTo(l.group);
     }
     setStatus('ship', n ? `${fmt(n)} na tela` : 'só no Báltico');
@@ -244,13 +313,14 @@ async function loadQuakes(){
     const d = await getJSON('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_week.geojson');
     l.group.clearLayers();
     d.features.forEach(f => { const [lon, lat, depth] = f.geometry.coordinates, p = f.properties;
-      L.circleMarker([lat, lon], {radius:Math.max(5, p.mag * 2.6), color:'#ff5d5d', weight:1, fillColor:'#ff5d5d', fillOpacity:.35})
+      mk([lat, lon], {radius:Math.max(6, p.mag * 2.8), color:'#ff5d5d', weight:3, fillColor:'#ff5d5d', fillOpacity:.15})
         .bindPopup(`<b>M ${p.mag.toFixed(1)}</b> · ${esc(p.place)}<br>${new Date(p.time).toLocaleString('pt-BR')}<br>Profundidade: ${Math.round(depth)} km<br><a href="${esc(p.url)}" target="_blank" rel="noopener">USGS</a>`).addTo(l.group); });
     setStatus('quake', fmt(d.features.length) + ' em 7 dias');
   } catch(e){ setStatus('quake', 'erro', true); }
 }
 
 /* Eventos naturais: NASA EONET (incêndios, tempestades, vulcões…) */
+const EVT_COL = {wildfires:'#ff4d00', severeStorms:'#4cc9f0', volcanoes:'#d00000', seaLakeIce:'#a8dadc', floods:'#277da1', dustHaze:'#c9a227', landslides:'#8d6e63', snow:'#e0fbfc', drought:'#e9c46a', tempExtremes:'#f72585'};
 const EVT_PT = {wildfires:'Incêndio', severeStorms:'Tempestade', volcanoes:'Vulcão', seaLakeIce:'Gelo', floods:'Enchente', earthquakes:'Terremoto', drought:'Seca', dustHaze:'Poeira/fumaça', landslides:'Deslizamento', snow:'Neve', tempExtremes:'Temperatura extrema'};
 async function loadEvents(){
   const l = byId.evt;
@@ -259,7 +329,7 @@ async function loadEvents(){
     l.group.clearLayers();
     d.events.forEach(e => { const g = e.geometry[e.geometry.length - 1]; if (!g || g.type !== 'Point') return;
       const [lon, lat] = g.coordinates, cat = e.categories[0]?.id;
-      L.circleMarker([lat, lon], {radius:8, color:'#0b0f14', weight:1, fillColor:'#ff8c42', fillOpacity:.9})
+      mk([lat, lon], {shape:'diamond', radius:8, color:'#0b0f14', weight:1.5, fillColor:EVT_COL[cat] || '#ff8c42', fillOpacity:.95})
         .bindPopup(`<b>${esc(EVT_PT[cat] || e.categories[0]?.title || 'Evento')}</b><br>${esc(e.title)}<br>${new Date(g.date).toLocaleDateString('pt-BR')}${e.sources[0] ? `<br><a href="${esc(e.sources[0].url)}" target="_blank" rel="noopener">Fonte</a>` : ''}`).addTo(l.group); });
     setStatus('evt', fmt(d.events.length) + ' ativos');
   } catch(e){ setStatus('evt', 'erro', true); }
@@ -278,11 +348,11 @@ async function overpass(id, query, minZoom, draw){
     setStatus(id, fmt(d.elements.length));
   } catch(e){ setStatus(id, 'Overpass ocupado', true); }
 }
-const loadOsm = () => overpass('osm', 'node["man_made"="surveillance"](BBOX);out 1500;', 13, (el, lat, lon) =>
-  L.circleMarker([lat, lon], {radius:6, color:'#0b0f14', weight:1, fillColor:'#c77dff', fillOpacity:.9})
+const loadOsm = () => overpass('osm', 'node["man_made"="surveillance"](BBOX);out 4000;', 10, (el, lat, lon) =>
+  mk([lat, lon], {shape:'square', radius:5, color:'#0b0f14', weight:1, fillColor:'#c77dff', fillOpacity:.95})
     .bindPopup(`<b>Câmera mapeada no OSM</b><br>Tipo: ${esc(el.tags?.['surveillance:type'] || el.tags?.surveillance || '—')}<br>${el.tags?.operator ? 'Operador: ' + esc(el.tags.operator) + '<br>' : ''}<small>Sem imagem pública</small>`));
 const loadPow = () => overpass('pow', 'nwr["power"="plant"](BBOX);out center 800;', 7, (el, lat, lon) =>
-  L.circleMarker([lat, lon], {radius:7, color:'#0b0f14', weight:1, fillColor:'#f72585', fillOpacity:.9})
+  mk([lat, lon], {shape:'hex', radius:8, color:'#0b0f14', weight:1, fillColor:'#f72585', fillOpacity:.95})
     .bindPopup(`<b>${esc(el.tags?.name || 'Usina')}</b><br>Fonte: ${esc(el.tags?.['plant:source'] || '—')}<br>${el.tags?.['plant:output:electricity'] ? 'Potência: ' + esc(el.tags['plant:output:electricity']) : ''}`));
 
 
@@ -316,7 +386,7 @@ function drawSats(){
     const p = satPos(s.rec, now); if (!p || isNaN(p.lat)) continue;
     if (!s.m) {
       const big = s.g === 'stations', col = (SAT_G[s.g] || SAT_G.visual)[1];
-      s.m = L.circleMarker([p.lat, p.lon], {radius:big ? 9 : isStl ? 4 : 6.5, weight:2, color:'#0b0f14', fillColor:col, fillOpacity:1})
+      s.m = mk([p.lat, p.lon], {shape:isStl ? 'circle' : 'sat', radius:big ? 9 : isStl ? 3.5 : 6.5, weight:isStl ? 1 : 1.5, color:'#0b0f14', fillColor:col, fillOpacity:1})
         .on('click', () => showSat(s)).addTo(layer.group);
     } else s.m.setLatLng([p.lat, p.lon]);
     s.p = p; isStl ? nl++ : ns++;
@@ -367,7 +437,7 @@ async function wikiFor(name){
 function trimText(t, max = 260){ if (!t) return ''; if (t.length <= max) return t; const c = t.slice(0, max); return c.slice(0, c.lastIndexOf(' ')) + '…'; }
 
 function showSat(s){
-  clearInterval(camTimer); clearSel(); satSel = s;
+  clearInterval(camTimer); stopVideo(); clearSel(); satSel = s;
   const rec = s.rec, period = 2 * Math.PI / rec.no; // minutos
   const a = Math.cbrt(MU / Math.pow(rec.no / 60, 2)), apo = a * (1 + rec.ecco) - R_EARTH, peri = a * (1 - rec.ecco) - R_EARTH;
   const incl = rec.inclo * 180 / Math.PI;
@@ -436,10 +506,15 @@ const loadCab = () => staticLayer('cab', 'cables.json', (d, g) => {
   L.geoJSON(d, {style:f => ({color:f.properties.c || '#2ec4b6', weight:1.5, opacity:.75}),
     onEachFeature:(f, ly) => ly.bindPopup(`<b>${esc(f.properties.n)}</b><br><a href="https://www.submarinecablemap.com/" target="_blank" rel="noopener">Submarine Cable Map</a>`)}).addTo(g);
   return fmt(d.features.length); });
-const loadApt = () => staticLayer('apt', 'airports.json', (d, g) => {
-  d.forEach(a => L.circleMarker([a[0], a[1]], {radius:a[6] === 'G' ? 7 : 5, weight:1, color:'#0b0f14', fillColor:'#e9c46a', fillOpacity:.9})
+const loadApt = () => { aptZoom(); return staticLayer('apt', 'airports.json', (d, g) => {
+  d.forEach(a => mk([a[0], a[1]], {shape:'plus', radius:a[6] === 'G' ? 8 : 6, weight:1, color:'#0b0f14', fillColor:'#e9c46a', fillOpacity:.95})
     .bindPopup(`<b>${esc(a[2])}</b>${a[3] ? ' (' + esc(a[3]) + ')' : ''}<br>${esc(a[4])} · ${esc(a[5])}<br>${a[6] === 'G' ? 'Grande porte' : 'Médio porte'}`).addTo(g));
-  return fmt(d.length); });
+  setTimeout(aptZoom); return fmt(d.length); }); };
+/* aeroportos só a partir do zoom 4, para não cobrir o mapa-múndi */
+function aptZoom(){ const l = byId.apt; if (!l.on) return; const show = map.getZoom() >= 4;
+  if (show && !map.hasLayer(l.group)) l.group.addTo(map); if (!show && map.hasLayer(l.group)) map.removeLayer(l.group);
+  if (once.apt) setStatus('apt', show ? (l.group.getLayers().length ? fmt(l.group.getLayers().length) : '…') : 'aproxime o mapa'); }
+map.on('zoomend', aptZoom);
 const loadWar = () => staticLayer('war', 'frontline.json', (d, g) => {
   L.geoJSON(d, {style:{color:'#e63946', weight:1, fillColor:'#e63946', fillOpacity:.25},
     onEachFeature:(f, ly) => ly.bindPopup(`<b>Área ocupada</b>${f.properties.n ? '<br>' + esc(f.properties.n) : ''}<br><small>DeepStateMap${d.updated ? ' · ' + esc(String(d.updated).slice(0, 10)) : ''}</small>`)}).addTo(g);
@@ -447,7 +522,7 @@ const loadWar = () => staticLayer('war', 'frontline.json', (d, g) => {
 
 /* Créditos */
 $('#infobtn').onclick = () => { clearInterval(camTimer); openSheet(`<h2>Fontes</h2><div class="meta">Dados públicos e gratuitos, usados para fins não comerciais.</div>
-  <p style="font-size:14px">Câmeras: Powered by TfL Open Data · Digitraffic/Fintraffic (CC BY 4.0) · NYC DOT · Caltrans · DriveBC · 511 Ontário · 511 Alberta<br>
+  <p style="font-size:14px">Câmeras: Powered by TfL Open Data · Digitraffic/Fintraffic (CC BY 4.0) · NYC DOT · Caltrans · DriveBC · NZTA · Iowa DOT · Road511 (20 estados dos EUA)<br>
   Voos: airplanes.live · adsb.lol · OpenSky Network<br>Navios: Digitraffic (CC BY 4.0)<br>Satélites: CelesTrak · Terremotos: USGS · Eventos: NASA EONET<br>
   Cabos: TeleGeography Submarine Cable Map · Aeroportos: OurAirports · Frente: DeepStateMap<br>Mapa: Esri, OpenStreetMap · Busca e camadas OSM: Nominatim, Overpass</p>`); };
 
