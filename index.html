@@ -56,6 +56,11 @@ form.search button{border:0;border-left:1px solid var(--line);border-radius:0}
 .stats div{background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
 .stats span{display:block;color:var(--mute);font-size:12px}.stats b{font:600 15px Inter,sans-serif;white-space:nowrap}
 .tag{display:inline-block;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:600;color:#0b0f14;margin-right:6px}
+.wiki{display:grid;grid-template-columns:120px minmax(0,1fr);gap:12px;align-items:start;margin:8px 0 4px}
+.wiki img{width:120px;height:120px;object-fit:cover;border-radius:10px;background:#000}
+.wiki p{margin:0;font-size:14px;color:var(--ink)}.wiki small{color:var(--mute)}
+.wiki.loading p{color:var(--mute)}
+@media(max-width:380px){.wiki{grid-template-columns:1fr}.wiki img{width:100%;height:180px}}
 @media(prefers-reduced-motion:reduce){.sheet{transition:none}}
 </style>
 </head>
@@ -325,6 +330,42 @@ function launchYear(s){
   if (s.ld) return +s.ld.slice(0, 4);
   const yy = +s.l1.slice(9, 11); return isNaN(yy) ? null : (yy < 57 ? 2000 : 1900) + yy;
 }
+/* Foto e resumo pela Wikipédia (busca em inglês, texto em português quando existir) */
+const WIKI_ALIAS = [[/^ISS\b/, 'International Space Station'], [/^(CSS|TIANHE|TIANGONG|WENTIAN|MENGTIAN)/, 'Tiangong space station'],
+  [/^HST$/, 'Hubble Space Telescope'], [/^CXO$/, 'Chandra X-ray Observatory'], [/^SWIFT$/, 'Neil Gehrels Swift Observatory'], [/^NUSTAR/, 'NuSTAR'], [/^TESS$/, 'Transiting Exoplanet Survey Satellite'], [/^FERMI/, 'Fermi Gamma-ray Space Telescope'], [/^STARLINK/, 'Starlink'], [/^GPS B(I+[A-Z]*|III)/, 'GPS satellite blocks'],
+  [/^NAVSTAR/, 'GPS satellite blocks'], [/^ONEWEB/, 'OneWeb satellite constellation'], [/^IRIDIUM/, 'Iridium satellite constellation'],
+  [/^GLOBALSTAR/, 'Globalstar'], [/^ORBCOMM/, 'Orbcomm'], [/^SOYUZ-MS/, 'Soyuz MS'], [/^PROGRESS-MS/, 'Progress MS'],
+  [/^CREW DRAGON|^DRAGON/, 'SpaceX Dragon 2'], [/^TIANZHOU/, 'Tianzhou (spacecraft)'], [/^SHENZHOU/, 'Shenzhou (spacecraft)']];
+const wikiCache = new Map();
+function wikiQuery(name){
+  const n = name.toUpperCase().trim();
+  for (const [re, t] of WIKI_ALIAS) if (re.test(n)) return {title:t};
+  let q = name.replace(/\(.*?\)/g, ' ').replace(/\bDEB\b.*$/i, ' ').trim();
+  if (/R\/B/i.test(q)) q = q.replace(/R\/B/i, '') + ' rocket stage';
+  else q = q + ' satellite';
+  return {search:q.replace(/\s+/g, ' ').trim()};
+}
+async function wikiFor(name){
+  if (wikiCache.has(name)) return wikiCache.get(name);
+  const job = (async () => {
+    const q = wikiQuery(name);
+    const base = 'https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*&redirects=1&prop=pageimages|extracts|langlinks&piprop=thumbnail&pithumbsize=400&exintro=1&explaintext=1&exsentences=2&lllang=pt';
+    const url = q.title ? `${base}&titles=${encodeURIComponent(q.title)}` : `${base}&generator=search&gsrlimit=1&gsrsearch=${encodeURIComponent(q.search)}`;
+    const d = await getJSON(url);
+    const page = Object.values(d.query?.pages || {})[0];
+    if (!page || page.missing !== undefined) return null;
+    let res = {title:page.title, text:page.extract, img:page.thumbnail?.source, url:'https://en.wikipedia.org/wiki/' + encodeURIComponent(page.title.replace(/ /g, '_'))};
+    const pt = page.langlinks?.[0]?.['*'];
+    if (pt) try {
+      const s = await getJSON('https://pt.wikipedia.org/api/rest_v1/page/summary/' + encodeURIComponent(pt.replace(/ /g, '_')));
+      res = {title:s.title, text:s.extract || res.text, img:s.thumbnail?.source || res.img, url:s.content_urls?.mobile?.page || res.url};
+    } catch(e){}
+    return res;
+  })().catch(() => null);
+  wikiCache.set(name, job); return job;
+}
+function trimText(t, max = 260){ if (!t) return ''; if (t.length <= max) return t; const c = t.slice(0, max); return c.slice(0, c.lastIndexOf(' ')) + '…'; }
+
 function showSat(s){
   clearInterval(camTimer); clearSel(); satSel = s;
   const rec = s.rec, period = 2 * Math.PI / rec.no; // minutos
@@ -344,12 +385,7 @@ function showSat(s){
   const yr = launchYear(s), age = yr ? new Date().getFullYear() - yr : null;
   const orbit = a - R_EARTH > 30000 ? (incl < 5 && rec.ecco < .05 ? 'Geoestacionária (GEO)' : 'Geossíncrona/alta') : peri < 2000 && apo > 10000 ? 'Altamente elíptica (HEO)' : a - R_EARTH > 2000 ? 'Média (MEO)' : 'Baixa (LEO)';
   const stat = (k, v) => `<div><span>${k}</span><b>${v}</b></div>`;
-  const render = () => {
-    const p = s.p || satPos(rec, new Date()); if (!p) return;
-    cover.setLatLng([p.lat, p.lon]).setRadius(R_EARTH * 1000 * Math.acos(R_EARTH / (R_EARTH + p.alt)));
-    body.innerHTML = `<h2>${esc(s.name)}</h2>
-      <div class="meta"><span class="tag" style="background:${col}">${esc(cat)}</span>${s.type ? esc(TYPE[s.type] || s.type) : ''}</div>
-      <div class="stats">
+  const statsHtml = p => `
         ${stat('Velocidade', p.v ? fmt(Math.round(p.v * 3600)) + ' km/h' : '—')}
         ${stat('Altitude', fmt(Math.round(p.alt)) + ' km')}
         ${stat('País/operador', esc(OWNER[s.own] || s.own || '—'))}
@@ -363,12 +399,28 @@ function showSat(s){
         ${stat('Apogeu / perigeu', fmt(Math.round(apo)) + ' / ' + fmt(Math.round(peri)) + ' km')}
         ${stat('Posição', p.lat.toFixed(2) + ', ' + p.lon.toFixed(2))}
         ${stat('NORAD', rec.satnum)}
-        ${stat('Designação', esc(s.id || s.l1.slice(9, 17).trim()))}
-      </div>
+        ${stat('Designação', esc(s.id || s.l1.slice(9, 17).trim()))}`;
+  const pNow = s.p || satPos(rec, new Date());
+  body.innerHTML = `<h2>${esc(s.name)}</h2>
+      <div class="meta"><span class="tag" style="background:${col}">${esc(cat)}</span>${s.type ? esc(TYPE[s.type] || s.type) : ''}</div>
+      <div class="wiki loading" id="wiki"><p>Buscando foto e descrição…</p></div>
+      <div class="stats" id="satStats">${statsHtml(pNow)}</div>
       <div class="meta">Linha tracejada: uma volta completa. Círculo: área de onde ele está visível agora.</div>
       <div class="row"><a href="https://www.n2yo.com/satellite/?s=${rec.satnum}" target="_blank" rel="noopener">Passagens sobre você (N2YO)</a> <a href="https://celestrak.org/satcat/table-satcat.php?CATNR=${rec.satnum}" target="_blank" rel="noopener">Catálogo</a></div>`;
+  wikiFor(s.name).then(w => {
+    const box = $('#wiki'); if (!box || satSel !== s) return;
+    if (!w || (!w.img && !w.text)) { box.remove(); return; }
+    box.className = 'wiki';
+    box.innerHTML = `${w.img ? `<img src="${esc(w.img)}" alt="${esc(w.title)}" loading="lazy">` : ''}<div style="${w.img ? '' : 'grid-column:1/-1'}"><p>${esc(trimText(w.text))}</p>
+      <small>Wikipédia: <a href="${esc(w.url)}" target="_blank" rel="noopener" style="color:var(--cam)">${esc(w.title)}</a>${/satellite|rocket/.test(wikiQuery(s.name).search || '') ? ' · resultado aproximado' : ''}</small></div>`;
+    const im = box.querySelector('img'); if (im) im.onerror = () => im.remove();
+  });
+  const render = () => {
+    const p = s.p || satPos(rec, new Date()); if (!p) return;
+    cover.setLatLng([p.lat, p.lon]).setRadius(R_EARTH * 1000 * Math.acos(R_EARTH / (R_EARTH + p.alt)));
+    const box = $('#satStats'); if (box) box.innerHTML = statsHtml(p);
   };
-  sheet.classList.add('open'); render(); camTimer = setInterval(render, 2000);
+  sheet.classList.add('open'); camTimer = setInterval(render, 2000);
   if (map.getZoom() > 4) map.panTo([p0.lat, p0.lon]);
 }
 $('#close').addEventListener('click', clearSel);

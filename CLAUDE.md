@@ -22,7 +22,7 @@ Mapa interativo ao vivo inspirado no **Argos Atlas** (argosatlas.com), feito só
 ## Camadas e fontes
 - **Câmeras** (~5.300 na 1ª execução): TfL Londres, Digitraffic Finlândia, NYC DOT, Caltrans (distritos 1–12), DriveBC, 511 Ontário, 511 Alberta. Imagem recarrega a cada 15 s; favoritos e grade no botão ★ (localStorage).
 - **Voos** (live, zoom ≥ 6, a cada 15 s): adsb.lol (só via proxy, sem CORS) → airplanes.live → OpenSky. No GitHub Pages direto aparece "precisa do proxy" (nenhuma API de voos grátis libera CORS); hospedar na Vercel resolve via `api/flights.js`.
-- **Satélites** (satellite.js 4.1.4, SGP4 no navegador, a cada 3 s): grupos stations, visual, gps-ops, weather, science, geo; **Starlink** em camada separada. Cor por categoria; toque abre ficha (velocidade, altitude, país, lançamento e local via SATCAT, idade, tipo de órbita, apogeu/perigeu, inclinação), órbita tracejada e círculo de cobertura. ~11,4 mil objetos, sendo ~10,6 mil Starlink.
+- **Satélites** (satellite.js 4.1.4, SGP4 no navegador, a cada 3 s): grupos stations, visual, gps-ops, weather, science, geo; **Starlink** em camada separada. Cor por categoria; toque abre ficha (velocidade, altitude, país, lançamento e local via SATCAT, idade, tipo de órbita, apogeu/perigeu, inclinação), órbita tracejada, círculo de cobertura e foto + resumo da Wikipédia (busca em inglês com atalhos `WIKI_ALIAS`, texto em pt quando houver). ~11,4 mil objetos, sendo ~10,6 mil Starlink.
 - **Cabos submarinos**, **Aeroportos** (grandes/médios com voos regulares), **Frente Ucrânia**: arquivos estáticos em `data/`.
 - **Navios**: Digitraffic AIS (só cobre o Báltico; AIS global grátis exige chave).
 - **Terremotos**: USGS M2.5+ 7 dias. **Eventos**: NASA EONET (incêndios, tempestades, vulcões).
