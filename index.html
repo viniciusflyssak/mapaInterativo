@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#0b0f14;--panel:rgba(14,19,26,.92);--line:#223040;--ink:#e6edf3;--mute:#8b9bab;--cam:#3ddc97;--fly:#ffc857;--ship:#4cc9f0;--quake:#ff5d5d;--evt:#ff8c42;--osm:#c77dff;--pow:#f72585;--sat:#f1f5f9;--stl:#94a3b8;--cab:#2ec4b6;--apt:#e9c46a;--war:#e63946}
+:root{--bg:#0b0f14;--panel:rgba(14,19,26,.92);--line:#223040;--ink:#e6edf3;--mute:#8b9bab;--cam:#3ddc97;--fly:#ffc857;--ship:#4cc9f0;--quake:#ff5d5d;--evt:#ff8c42;--osm:#c77dff;--pow:#f72585;--sat:#f1f5f9;--stl:#b8c4d6;--cab:#2ec4b6;--apt:#e9c46a;--war:#e63946}
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:15px/1.45 Inter,system-ui,sans-serif;overflow:hidden}
 #map{position:fixed;inset:0;background:#0b0f14}
@@ -136,7 +136,7 @@ const ICO = {
   osm:'<svg viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>',
   pow:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 12l-4.5 7.8h-9L3 12l4.5-7.8h9z"/></svg>',
   sat:'<svg viewBox="0 0 24 24" fill="currentColor"><rect x="9" y="9" width="6" height="6"/><rect x="1" y="10" width="7" height="4"/><rect x="16" y="10" width="7" height="4"/></svg>',
-  stl:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="6" cy="12" r="2.5"/><circle cx="12" cy="12" r="2.5"/><circle cx="18" cy="12" r="2.5"/></svg>',
+  stl:'<svg viewBox="0 0 24 24" fill="currentColor"><rect x="9.5" y="9.5" width="5" height="5"/><rect x="3" y="10.5" width="5.5" height="3"/><rect x="15.5" y="10.5" width="5.5" height="3"/></svg>',
   cab:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M2 15c4-8 8 4 12-4s6 2 8 0"/></svg>',
   apt:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 2h6v7h7v6h-7v7H9v-7H2V9h7z"/></svg>',
   war:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 2h2v20H4zM7 3h13l-3 5 3 5H7z"/></svg>',
@@ -295,21 +295,40 @@ async function loadFlights(){
   setStatus('fly', `${fmt(list.length)} · ${used}`);
 }
 
-/* Navios: Digitraffic (cobre o Báltico; AIS aberto global exige chave) */
-let shipCache = null, shipAt = 0;
+/* Navios: posições do mundo todo coletadas de hora em hora pela Action (AISStream, branch data-live)
+   + Báltico ao vivo pela Digitraffic. */
+const SHIPS_URL = 'https://raw.githubusercontent.com/viniciusflyssak/mapaInterativo/data-live/ships.json';
+const SHIP_T = t => t == null ? [NA, '#4cc9f0'] : t === 30 ? ['Pesca', '#ff9f1c'] : t >= 31 && t <= 32 || t === 52 ? ['Rebocador', '#cbd5e1']
+  : t === 35 ? ['Militar', '#8d99ae'] : t === 36 || t === 37 ? ['Veleiro / recreio', '#c77dff'] : t >= 40 && t <= 49 ? ['Alta velocidade', '#ffd166']
+  : t === 50 ? ['Prático', '#cbd5e1'] : t === 51 ? ['Busca e salvamento', '#ff5d5d'] : t >= 60 && t <= 69 ? ['Passageiros', '#4cc9f0']
+  : t >= 70 && t <= 79 ? ['Carga', '#3ddc97'] : t >= 80 && t <= 89 ? ['Tanque (petróleo/gás)', '#ff5d5d'] : ['Outro (código ' + t + ')', '#4cc9f0'];
+let shipGlobal = null, shipGlobalAt = 0, shipCache = null, shipAt = 0;
 async function loadShips(){
   const l = byId.ship;
+  if (!shipGlobal || Date.now() - shipGlobalAt > 10 * 60000) {
+    try { const d = await getJSON(SHIPS_URL + '?t=' + Math.floor(Date.now() / 600000)); shipGlobal = d; shipGlobalAt = Date.now(); } catch(e){ shipGlobal = shipGlobal || {ships:[]}; shipGlobalAt = Date.now(); }
+  }
   try {
     if (!shipCache || Date.now() - shipAt > 60000) { shipCache = (await getJSON('https://meri.digitraffic.fi/api/ais/v1/locations', {headers:{'Digitraffic-User':'Mirante/1.0'}})).features || []; shipAt = Date.now(); }
-    const b = map.getBounds().pad(0.2); l.group.clearLayers(); let n = 0;
-    for (const f of shipCache) {
-      const [lon, lat] = f.geometry.coordinates; if (!b.contains([lat, lon]) || n > 3000) continue; n++;
-      const p = f.properties;
-      mk([lat, lon], {shape:'tri', rot:(p.cog != null && p.cog < 360) ? p.cog : 0, radius:6, color:'#0b0f14', weight:1, fillColor:'#4cc9f0', fillOpacity:.95})
-        .bindPopup(`<b>MMSI ${p.mmsi ?? f.mmsi}</b><br>Velocidade: ${p.sog != null ? p.sog + ' nós' : NA}<br>Rumo: ${p.cog != null && p.cog < 360 ? p.cog + '°' : NA}<br><a href="https://www.myshiptracking.com/?mmsi=${p.mmsi ?? f.mmsi}" target="_blank" rel="noopener">Detalhes</a>`).addTo(l.group);
-    }
-    setStatus('ship', n ? `${fmt(n)} na tela` : 'só no Báltico');
-  } catch(e){ setStatus('ship', 'erro', true); }
+  } catch(e){ shipCache = shipCache || []; }
+  const all = new Map();
+  for (const s of shipGlobal.ships || []) all.set(s[0], {mmsi:s[0], lat:s[1], lon:s[2], sog:s[3], cog:s[4], hdg:s[5], name:s[6], type:s[7], at:s[8] * 1000});
+  for (const f of shipCache) { const p = f.properties || {}, m = f.mmsi ?? p.mmsi, [lon, lat] = f.geometry.coordinates;
+    const old = all.get(m) || {}; all.set(m, {...old, mmsi:m, lat, lon, sog:p.sog, cog:p.cog, hdg:p.heading, at:p.timestampExternal || Date.now(), live:true}); }
+  const b = map.getBounds().pad(0.15), z = map.getZoom(), cap = z < 4 ? 2500 : z < 7 ? 5000 : 8000;
+  l.group.clearLayers(); let n = 0, total = 0;
+  for (const s of all.values()) {
+    if (s.lat == null) continue; total++;
+    if (!b.contains([s.lat, s.lon]) || n >= cap) continue; n++;
+    const [tn, col] = SHIP_T(s.type), dir = s.hdg != null && s.hdg < 360 ? s.hdg : s.cog != null && s.cog < 360 ? s.cog : 0;
+    const mins = s.at ? Math.max(0, Math.round((Date.now() - s.at) / 60000)) : null;
+    mk([s.lat, s.lon], {shape:'tri', rot:dir, radius:z < 5 ? 6 : 9, color:'#0b0f14', weight:1, fillColor:col, fillOpacity:.95})
+      .bindPopup(`<b>${esc(s.name || 'Sem nome')}</b><br>Tipo: ${esc(tn)}<br>MMSI: ${s.mmsi}<br>Velocidade: ${s.sog != null && s.sog < 102 ? s.sog + ' nós' : NA}<br>Rumo: ${s.cog != null && s.cog < 360 ? Math.round(s.cog) + '°' : NA}<br>Posição: ${mins == null ? NA : mins < 2 ? 'agora' : 'há ' + mins + ' min'}${s.live ? ' (ao vivo)' : ''}<br><a href="https://www.myshiptracking.com/?mmsi=${s.mmsi}" target="_blank" rel="noopener">Detalhes</a>`).addTo(l.group);
+  }
+  const globalOk = (shipGlobal.ships || []).length > 0;
+  if (n) setStatus('ship', `${fmt(n)} na tela`);
+  else if (!globalOk) { setStatus('ship', 'só no Báltico agora', true); say('Sem navios aqui: o mundo todo depende da chave AISStream. Ao vivo hoje só no Mar Báltico.', 6000); }
+  else setStatus('ship', 'nenhum nesta área');
 }
 
 /* Terremotos: USGS última semana, M2.5+ */
@@ -384,7 +403,7 @@ const loadPow = () => overpass('pow', 'nwr["power"="plant"](BBOX);out center 800
 
 
 /* Satélites: TLE + catálogo da CelesTrak (baixados pela Action), posição por SGP4 no navegador */
-const SAT_G = {stations:['Estação espacial','#ffd166'], visual:['Visível a olho nu','#f1f5f9'], 'gps-ops':['Navegação GPS','#3ddc97'], weather:['Meteorológico','#4cc9f0'], science:['Científico','#c77dff'], geo:['Geoestacionário','#ff8c42'], starlink:['Starlink (internet)','#94a3b8']};
+const SAT_G = {stations:['Estação espacial','#ffd166'], visual:['Visível a olho nu','#f1f5f9'], 'gps-ops':['Navegação GPS','#3ddc97'], weather:['Meteorológico','#4cc9f0'], science:['Científico','#c77dff'], geo:['Geoestacionário','#ff8c42'], starlink:['Starlink (internet)','#b8c4d6']};
 const OWNER = {US:'Estados Unidos', PRC:'China', CIS:'Rússia/ex-URSS', ESA:'Agência Espacial Europeia', JPN:'Japão', IND:'Índia', FR:'França', UK:'Reino Unido', GER:'Alemanha', BRAZ:'Brasil', CA:'Canadá', ISS:'Estação Espacial Internacional (consórcio)', ITSO:'Intelsat', SES:'SES', EUME:'EUMETSAT', SKOR:'Coreia do Sul', IT:'Itália', SPN:'Espanha', AUS:'Austrália', ISRA:'Israel', ARGN:'Argentina', UAE:'Emirados Árabes', GLOB:'Globalstar', ORB:'Orbcomm', IRID:'Iridium', NETH:'Holanda', TURK:'Turquia', SAUD:'Arábia Saudita', LUXE:'Luxemburgo', O3B:'O3b/SES', AB:'Arabsat', EUTE:'Eutelsat', FRIT:'França/Itália', MEX:'México', INDO:'Indonésia', SING:'Singapura', TWN:'Taiwan', NOR:'Noruega', SWED:'Suécia', FIN:'Finlândia', NZ:'Nova Zelândia', PAKI:'Paquistão', IRAN:'Irã', NKOR:'Coreia do Norte', THAI:'Tailândia', VTNM:'Vietnã', KAZ:'Cazaquistão', EGYP:'Egito', NIG:'Nigéria', CHLE:'Chile', PERU:'Peru', BOL:'Bolívia', VENZ:'Venezuela', URY:'Uruguai'};
 const SITE = {AFETR:'Cabo Canaveral (EUA)', AFWTR:'Vandenberg (EUA)', KSCUT:'Centro Kennedy (EUA)', WRAS:'Wallops (EUA)', TYMSC:'Baikonur (Cazaquistão)', PLMSC:'Plesetsk (Rússia)', VOSTO:'Vostochny (Rússia)', KYMSC:'Kapustin Yar (Rússia)', JSC:'Jiuquan (China)', XSC:'Xichang (China)', TSC:'Taiyuan (China)', WSC:'Wenchang (China)', YSLA:'Mar Amarelo (China)', FRGUI:'Kourou (Guiana Francesa)', SRILR:'Sriharikota (Índia)', TNSTA:'Tanegashima (Japão)', KSCUT2:'Kagoshima (Japão)', RLLB:'Mahia (Nova Zelândia)', SEAL:'Sea Launch (oceano)', NSC:'Naro (Coreia do Sul)', SEMLS:'Semnan (Irã)', SVOBO:'Svobodny (Rússia)', DLS:'Dombarovsky (Rússia)', ALCLC:'Alcântara (Brasil)', KWAJ:'Kwajalein (Ilhas Marshall)', PKMTR:'Pacific Spaceport (Alasca)', SADOL:'Mar de Barents (submarino)', TTMTR:'Taiyuan (China)'};
 const TYPE = {PAY:'Satélite ativo/carga útil', 'R/B':'Corpo de foguete', DEB:'Detrito', UNK:'Desconhecido'};
@@ -413,7 +432,7 @@ function drawSats(){
     const p = satPos(s.rec, now); if (!p || isNaN(p.lat)) continue;
     if (!s.m) {
       const big = s.g === 'stations', col = (SAT_G[s.g] || SAT_G.visual)[1];
-      s.m = mk([p.lat, p.lon], {shape:isStl ? 'circle' : 'sat', radius:big ? 9 : isStl ? 3.5 : 6.5, weight:isStl ? 1 : 1.5, color:'#0b0f14', fillColor:col, fillOpacity:1})
+      s.m = mk([p.lat, p.lon], {shape:'sat', radius:big ? 9 : isStl ? 4.5 : 6.5, weight:1, color:'#0b0f14', fillColor:col, fillOpacity:1})
         .on('click', () => showSat(s)).addTo(layer.group);
     } else s.m.setLatLng([p.lat, p.lon]);
     s.p = p; isStl ? nl++ : ns++;
@@ -559,7 +578,7 @@ const loadWar = () => staticLayer('war', 'frontline.json', (d, g) => {
 /* Créditos */
 $('#infobtn').onclick = () => { clearInterval(camTimer); openSheet(`<h2>Fontes</h2><div class="meta">Dados públicos e gratuitos, usados para fins não comerciais.</div>
   <p style="font-size:14px">Câmeras: OpenCCTV (catálogo) · ANTT (dados abertos) · Powered by TfL Open Data · Digitraffic/Fintraffic (CC BY 4.0) · NYC DOT · Caltrans · DriveBC · NZTA · Iowa DOT · Road511 (20 estados dos EUA)<br>
-  Voos: airplanes.live · adsb.lol · OpenSky Network<br>Navios: Digitraffic (CC BY 4.0)<br>Satélites: CelesTrak · Terremotos: USGS · Eventos: NASA EONET<br>
+  Voos: airplanes.live · adsb.lol · OpenSky Network<br>Navios: AISStream · Digitraffic (CC BY 4.0)<br>Satélites: CelesTrak · Terremotos: USGS · Eventos: NASA EONET<br>
   Cabos: TeleGeography Submarine Cable Map · Aeroportos: OurAirports · Frente: DeepStateMap<br>Mapa: Esri, OpenStreetMap · Busca e camadas OSM: Nominatim, Overpass</p>`); };
 
 const LOADERS = {cam:() => camsLoaded || loadCams(), fly:loadFlights, ship:loadShips, quake:loadQuakes, evt:loadEvents, osm:loadOsm, pow:loadPow, sat:loadSats, stl:loadSats, cab:loadCab, apt:loadApt, war:loadWar};

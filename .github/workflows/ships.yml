@@ -1,0 +1,44 @@
+name: Atualizar navios
+
+# Coleta navios do mundo todo a cada hora e publica numa branch separada (data-live),
+# sobrescrita a cada execução para não acumular histórico no repositório.
+on:
+  schedule:
+    - cron: "41 * * * *"
+  workflow_dispatch:
+  push:
+    paths:
+      - "scripts/fetch_ships.py"
+      - ".github/workflows/ships.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ships
+  cancel-in-progress: true
+
+jobs:
+  ships:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install websockets==13.1
+      - name: Coletar
+        env:
+          AISSTREAM_KEY: ${{ secrets.AISSTREAM_KEY }}
+        run: python scripts/fetch_ships.py /tmp/ships.json
+      - name: Publicar na branch data-live
+        run: |
+          [ -f /tmp/ships.json ] || exit 0
+          mkdir -p /tmp/live && cp /tmp/ships.json /tmp/live/
+          cd /tmp/live
+          git init -q -b data-live
+          git config user.name "mirante-bot"
+          git config user.email "mirante-bot@users.noreply.github.com"
+          git add ships.json && git commit -q -m "Navios $(date -u +%H:%M)"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" data-live
