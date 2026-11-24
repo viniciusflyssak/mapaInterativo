@@ -6,7 +6,7 @@
 - data/frontline.json  : GeoJSON das áreas ocupadas na Ucrânia (DeepStateMap)
 Cada item é independente: se falhar, o arquivo anterior é mantido.
 """
-import csv, io, json, os, sys, urllib.request
+import csv, io, json, os, sys, time, urllib.parse, urllib.request
 
 UA = {"User-Agent": "Mirante/1.0 (github.com/viniciusflyssak/mapaInterativo)"}
 DATA = os.path.join(os.path.dirname(__file__), "..", "data")
@@ -106,8 +106,83 @@ def powerplants():
     return len(out)
 
 
+OSM_COUNTRIES = ["BR", "AR", "CL", "UY", "PY", "BO", "PE", "EC", "CO", "VE", "GY", "SR", "GF", "MX"]
+OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter",
+            "https://maps.mail.ru/osm/tools/overpass/api/interpreter"]
+
+
+def overpass(query):
+    last = None
+    for url in OVERPASS:
+        try:
+            data = urllib.parse.urlencode({"data": query}).encode()
+            req = urllib.request.Request(url, data=data, headers=UA)
+            with urllib.request.urlopen(req, timeout=300) as r:
+                return json.loads(r.read().decode("utf-8"))
+        except Exception as e:
+            last = e
+            time.sleep(10)
+    raise last
+
+
+def osm_latam():
+    """Câmeras de vigilância mapeadas no OpenStreetMap (ODbL) na América Latina: [lat, lon, tipo, operador, país]."""
+    out, report = [], {}
+    for cc in OSM_COUNTRIES:
+        try:
+            d = overpass(f'[out:json][timeout:240];area["ISO3166-1"="{cc}"][admin_level=2]->.a;node["man_made"="surveillance"](area.a);out;')
+            n = 0
+            for el in d.get("elements", []):
+                t = el.get("tags", {})
+                out.append([round(el["lat"], 5), round(el["lon"], 5), t.get("surveillance:type") or t.get("surveillance") or "",
+                            t.get("operator") or "", cc])
+                n += 1
+            report[cc] = n
+        except Exception as e:
+            report[cc] = f"erro: {str(e)[:100]}"
+        time.sleep(5)  # uma consulta por vez, com pausa: uso educado do Overpass
+    if out:
+        save("osm_latam.json", out)
+    print("  osm por país:", report)
+    return len(out)
+
+
+def antt_cftv():
+    """Câmeras (CFTV) das rodovias federais concedidas, dados abertos da ANTT. Só localização, sem imagem.
+    Saída: [lat, lon, rodovia, km, município, uf, concessionária, sentido]"""
+    pkg = json.loads(get("https://dados.antt.gov.br/api/3/action/package_show?id=cftv", 180))["result"]
+    res = [r for r in pkg.get("resources", []) if r.get("url", "").endswith(".json")]
+    res.sort(key=lambda r: r.get("last_modified") or r.get("created") or "", reverse=True)
+    last = None
+    for r in res:
+        try:
+            rows = json.loads(get(r["url"], 300))
+            break
+        except Exception as e:
+            last = e
+    else:
+        raise last or RuntimeError("sem recurso JSON")
+    if isinstance(rows, dict):
+        rows = next((v for v in rows.values() if isinstance(v, list)), [])
+    out = []
+    num = lambda v: float(str(v).replace(",", ".")) if v not in (None, "") else None
+    for r in rows:
+        if (r.get("situacao") or "").strip().lower() not in ("ativo", "ativa"):
+            continue
+        try:
+            lat, lon = num(r.get("latitude")), num(r.get("longitude"))
+        except ValueError:
+            continue
+        if lat is None or lon is None or not (-35 < lat < 6 and -75 < lon < -30):
+            continue
+        out.append([round(lat, 5), round(lon, 5), r.get("rodovia") or "", r.get("km_m") or "", r.get("municipio") or "",
+                    r.get("uf") or "", r.get("concessionaria") or "", r.get("sentido") or ""])
+    save("cftv_antt.json", out)
+    return len(out)
+
+
 if __name__ == "__main__":
-    for name, fn in [("satélites", satellites), ("cabos", cables), ("aeroportos", airports), ("frente", frontline), ("usinas", powerplants)]:
+    for name, fn in [("satélites", satellites), ("cabos", cables), ("aeroportos", airports), ("frente", frontline), ("usinas", powerplants), ("vigilância OSM", osm_latam), ("CFTV ANTT", antt_cftv)]:
         try:
             print(f"{name:11} {fn()}")
         except Exception as e:

@@ -4,7 +4,8 @@ Formato de saída: [[lat, lon, nome, url_imagem, fonte, url_video_ou_vazio], ...
 Cada fonte é independente: se uma falhar, as outras seguem. O resultado por fonte
 vai para data/sources.json, para facilitar o diagnóstico.
 Fontes Road511, Iowa e NZTA baseadas no projeto Argus (MIT, github.com/GoSlowPoke168/Argus).
-O OpenCCTV foi removido: o serviço bloqueia acesso automatizado (HTTP 403) e isso é respeitado.
+OpenCCTV e Road511 foram removidos: passaram a bloquear acesso automatizado (403/401) e isso é respeitado.
+A ANTT não traz imagens, só localização: foi para scripts/fetch_extra.py (camada Vigilância).
 """
 import gzip, json, os, re, sys, time, urllib.parse, urllib.request, concurrent.futures as cf
 
@@ -226,7 +227,7 @@ def antt():
 
 
 SOURCES = {"tfl": tfl, "digitraffic": digitraffic, "nyc": nyc, "caltrans": caltrans, "drivebc": drivebc,
-           "nzta": nzta, "iowa": iowa, "road511": road511, "antt": antt}
+           "nzta": nzta, "iowa": iowa}
 
 
 def main():

@@ -59,6 +59,8 @@ form.search button{border:0;border-left:1px solid var(--line);border-radius:0}
 .live{display:inline-flex;align-items:center;gap:6px}.live::before{content:'';width:8px;height:8px;border-radius:50%;background:#ff3b3b}
 .err{color:var(--quake);font-size:13px;margin-top:6px}
 .marker-cluster{background:rgba(61,220,151,.22)!important;border-radius:50%}
+.osm-cluster{background:rgba(199,125,255,.25)!important}.osm-cluster div{background:rgba(199,125,255,.9)!important;color:#1a0b2e!important}
+.vig{width:14px;height:14px;border-radius:3px;background:#c77dff;border:2px solid #0b0f14}.vig.antt{background:#ff9f1c}
 .marker-cluster div{background:rgba(61,220,151,.9)!important;color:#06140e;font:700 12px Inter,sans-serif;border-radius:50%}
 .leaflet-container{font:inherit;background:#0b0f14}
 .leaflet-control-attribution{background:rgba(11,15,20,.7)!important;color:var(--mute)!important;font-size:10px}
@@ -239,7 +241,7 @@ const LAYERS = [
   {id:'ship',  name:'Navios',      c:'var(--ship)',  on:false},
   {id:'quake', name:'Terremotos',  c:'var(--quake)', on:true},
   {id:'evt',   name:'Eventos',     c:'var(--evt)',   on:true},
-  {id:'osm',   name:'Vigilância (OSM)', c:'var(--osm)',   on:false},
+  {id:'osm',   name:'Vigilância', c:'var(--osm)',   on:false},
   {id:'pow',   name:'Usinas',      c:'var(--pow)',   on:false},
   {id:'sat',   name:'Satélites',   c:'var(--sat)',   on:true},
   {id:'stl',   name:'Starlink',    c:'var(--stl)',   on:false},
@@ -249,9 +251,11 @@ const LAYERS = [
   {id:'tz',    name:'Fusos horários', c:'#ffd166', on:false},
 ];
 const state = store.get('mirante:layers', {});
+const osmCluster = L.markerClusterGroup({chunkedLoading:true, maxClusterRadius:55, showCoverageOnHover:false, iconCreateFunction:c => L.divIcon({html:`<div><span>${c.getChildCount()}</span></div>`, className:'marker-cluster osm-cluster', iconSize:[40,40]})});
+const osmLive = L.layerGroup();
 LAYERS.forEach(l => { if (l.id in state) l.on = state[l.id]; l.group = l.id === 'cam'
   ? L.markerClusterGroup({chunkedLoading:true, maxClusterRadius:50, showCoverageOnHover:false})
-  : L.layerGroup(); });
+  : l.id === 'osm' ? L.featureGroup([osmCluster, osmLive]) : L.layerGroup(); });
 const byId = Object.fromEntries(LAYERS.map(l => [l.id, l]));
 
 $('#chips').innerHTML = LAYERS.map(l => `<button class="chip" id="chip-${l.id}" style="--c:${l.c}" aria-pressed="false">${ICO[l.id] || ''}${l.name} <small id="st-${l.id}"></small></button>`).join('');
@@ -503,7 +507,8 @@ async function overpassFetch(q){
 }
 function overpass(id, query, minZoom, draw){
   const l = byId[id];
-  if (map.getZoom() < minZoom) { l.group.clearLayers(); ovLast[id] = null; setStatus(id, 'aproxime o mapa'); return; }
+  if (map.getZoom() < minZoom) { (id === 'osm' ? osmLive : l.group).clearLayers(); ovLast[id] = null; if (id !== 'osm') setStatus(id, 'aproxime o mapa'); return; }
+  if (id === 'osm' && latamCovers(map.getBounds())) { setStatus(id, osmStatus()); return; }
   const view = map.getBounds();
   if (ovLast[id] && ovLast[id].contains(view)) return;          // já temos essa área
   const b = view.pad(0.3), bbox = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()].map(n => n.toFixed(4)).join(',');
@@ -511,15 +516,33 @@ function overpass(id, query, minZoom, draw){
   ovQueue = ovQueue.then(async () => {                            // uma consulta por vez, para não ser bloqueado
     try {
       const d = await overpassFetch(`[out:json][timeout:25];${query.replaceAll('BBOX', bbox)}`);
-      l.group.clearLayers(); ovLast[id] = b;
-      d.elements.forEach(el => { const lat = el.lat ?? el.center?.lat, lon = el.lon ?? el.center?.lon; if (lat != null) draw(el, lat, lon).addTo(l.group); });
-      setStatus(id, fmt(d.elements.length));
+      const target = id === 'osm' ? osmLive : l.group; target.clearLayers(); ovLast[id] = b;
+      d.elements.forEach(el => { const lat = el.lat ?? el.center?.lat, lon = el.lon ?? el.center?.lon; if (lat != null && !(id === 'osm' && inLatam(lat, lon))) draw(el, lat, lon).addTo(target); });
+      setStatus(id, id === 'osm' ? osmStatus() : fmt(d.elements.length));
     } catch(e){ setStatus(id, 'servidores OSM ocupados, tente de novo', true); }
   });
 }
-const loadOsm = () => overpass('osm', 'node["man_made"="surveillance"](BBOX);out 4000;', 10, (el, lat, lon) =>
-  mk([lat, lon], {shape:'square', radius:5, color:'#0b0f14', weight:1, fillColor:'#c77dff', fillOpacity:.95})
-    .bindPopup(`<b>Câmera de vigilância</b><br><small>Registrada por voluntários no OpenStreetMap. Mostra onde a câmera está, sem acesso à imagem.</small><br>Tipo: ${esc(el.tags?.['surveillance:type'] || el.tags?.surveillance || NA)}<br>Operador: ${esc(el.tags?.operator || NA)}<br>`));
+const VIG_T = {camera:'câmera', ALPR:'leitor de placas', guard:'vigia', public:'área pública', outdoor:'área externa', indoor:'área interna', traffic:'trânsito'};
+const vigPopup = (tipo, op) => `<b>Câmera de vigilância</b><br>Tipo: ${esc(tipo ? (VIG_T[tipo] || tipo) : NA)}<br>Operador: ${esc(op || NA)}<br><small>Registrada por voluntários no OpenStreetMap. Mostra onde a câmera está, sem acesso à imagem.</small>`;
+const LATAM = L.latLngBounds([-56.5, -118.5], [33, -33]);
+const inLatam = (lat, lon) => LATAM.contains([lat, lon]);
+const latamCovers = b => LATAM.contains(b);
+let osmStatic = 0, osmLoaded = false;
+const osmStatus = () => `${fmt(osmStatic)} na América Latina` + (map.getZoom() >= 9 && !latamCovers(map.getBounds()) ? ` + ${fmt(osmLive.getLayers().length)} aqui` : map.getZoom() < 9 && !latamCovers(map.getBounds()) ? ' · fora dela, aproxime' : '');
+async function loadOsm(){
+  if (!osmLoaded) {
+    osmLoaded = true; setStatus('osm', '…');
+    const iconO = L.divIcon({className:'', html:'<div class="vig"></div>', iconSize:[14,14]}), iconA = L.divIcon({className:'', html:'<div class="vig antt"></div>', iconSize:[14,14]});
+    const [osm, antt] = await Promise.all([getJSON('data/osm_latam.json', {cache:'no-cache'}).catch(() => []), getJSON('data/cftv_antt.json', {cache:'no-cache'}).catch(() => [])]);
+    osmCluster.addLayers(osm.map(o => L.marker([o[0], o[1]], {icon:iconO}).bindPopup(vigPopup(o[2], o[3]))));
+    osmCluster.addLayers(antt.map(a => L.marker([a[0], a[1]], {icon:iconA}).bindPopup(`<b>Câmera de rodovia federal</b><br>Rodovia: ${esc(a[2] || NA)} · km ${esc(a[3] || NA)}<br>Município: ${esc(a[4] || NA)}${a[5] ? ' (' + esc(a[5]) + ')' : ''}<br>Concessionária: ${esc(a[6] || NA)}<br>Sentido: ${esc(a[7] || NA)}<br><small>Dados abertos da ANTT. Mostra onde a câmera está; a imagem não é pública.</small>`)));
+    osmStatic = osm.length + antt.length;
+  }
+  overpass('osm', 'node["man_made"="surveillance"](BBOX);out 4000;', 9, (el, lat, lon) =>
+    mk([lat, lon], {shape:'square', radius:5, color:'#0b0f14', weight:1, fillColor:'#c77dff', fillOpacity:.95})
+      .bindPopup(vigPopup(el.tags?.['surveillance:type'] || el.tags?.surveillance, el.tags?.operator)));
+  setStatus('osm', osmStatus());
+}
 const FUEL = {Solar:['Solar','#ffd166'], Wind:['Eólica','#90e0ef'], Hydro:['Hidrelétrica','#4cc9f0'], Gas:['Gás','#f4a261'], Coal:['Carvão','#8d99ae'],
   Oil:['Petróleo','#e76f51'], Nuclear:['Nuclear','#c77dff'], Biomass:['Biomassa','#80b918'], Waste:['Resíduos','#a68a64'], Geothermal:['Geotérmica','#ff5d8f'],
   Storage:['Armazenamento','#adb5bd'], Cogeneration:['Cogeração','#ffb4a2'], 'Wave and Tidal':['Ondas e marés','#219ebc'], Petcoke:['Coque de petróleo','#6c757d'], Other:['Outra','#f72585']};
@@ -705,7 +728,7 @@ const loadWar = () => staticLayer('war', 'frontline.json', (d, g) => {
 
 /* Créditos */
 $('#infobtn').onclick = () => { clearInterval(camTimer); openSheet(`<h2>Fontes</h2><div class="meta">Dados públicos e gratuitos, usados para fins não comerciais.</div>
-  <p style="font-size:14px">Câmeras: OpenCCTV (catálogo) · ANTT (dados abertos) · Powered by TfL Open Data · Digitraffic/Fintraffic (CC BY 4.0) · NYC DOT · Caltrans · DriveBC · NZTA · Iowa DOT · Road511 (20 estados dos EUA)<br>
+  <p style="font-size:14px">Câmeras: Powered by TfL Open Data · Digitraffic/Fintraffic (CC BY 4.0) · NYC DOT · Caltrans · DriveBC · NZTA · Iowa DOT<br>Vigilância: OpenStreetMap (ODbL) · ANTT, CFTV das rodovias federais (dados abertos)<br>
   Voos: airplanes.live · adsb.lol · OpenSky Network<br>Navios: AISStream · Digitraffic (CC BY 4.0)<br>Satélites: CelesTrak · Terremotos: USGS · Eventos: NASA EONET<br>
   Cabos: TeleGeography Submarine Cable Map · Aeroportos: OurAirports · Frente: DeepStateMap<br>Usinas: WRI Global Power Plant Database (CC BY 4.0) · Mapa e imagens de satélite: Esri, Maxar, Earthstar Geographics, OpenStreetMap · Busca e camadas OSM: Nominatim, Overpass · Fuso por ponto: Open-Meteo</p>`); };
 
