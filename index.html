@@ -59,7 +59,7 @@ form.search button{border:0;border-left:1px solid var(--line);border-radius:0}
 .live{display:inline-flex;align-items:center;gap:6px}.live::before{content:'';width:8px;height:8px;border-radius:50%;background:#ff3b3b}
 .err{color:var(--quake);font-size:13px;margin-top:6px}
 .marker-cluster{background:rgba(61,220,151,.22)!important;border-radius:50%}
-.osm-cluster{background:rgba(199,125,255,.25)!important}.osm-cluster div{background:rgba(199,125,255,.9)!important;color:#1a0b2e!important}
+.marker-cluster.osm-cluster{background:rgba(199,125,255,.25)!important}.marker-cluster.osm-cluster div{background:rgba(199,125,255,.9)!important;color:#1a0b2e!important}
 .vig{width:14px;height:14px;border-radius:3px;background:#c77dff;border:2px solid #0b0f14}.vig.antt{background:#ff9f1c}
 .marker-cluster div{background:rgba(61,220,151,.9)!important;color:#06140e;font:700 12px Inter,sans-serif;border-radius:50%}
 .leaflet-container{font:inherit;background:#0b0f14}
@@ -580,6 +580,7 @@ async function loadOsm(){
     osmCluster.addLayers(osm.map(o => L.marker([o[0], o[1]], {icon:iconO}).bindPopup(vigPopup(o[2], o[3]))));
     osmCluster.addLayers(antt.map(a => L.marker([a[0], a[1]], {icon:iconA}).bindPopup(`<b>Câmera de rodovia federal</b><br>Rodovia: ${esc(a[2] || NA)} · km ${esc(a[3] || NA)}<br>Município: ${esc(a[4] || NA)}${a[5] ? ' (' + esc(a[5]) + ')' : ''}<br>Concessionária: ${esc(a[6] || NA)}<br>Sentido: ${esc(a[7] || NA)}<br><small>Dados abertos da ANTT. Mostra onde a câmera está; a imagem não é pública.</small>`)));
     osmStatic = osm.length + antt.length;
+    if (!osmStatic) osmLoaded = false;  // arquivos ainda não gerados: tenta de novo no próximo movimento
   }
   overpass('osm', `node["man_made"="surveillance"](BBOX);out ${OSM_LIMIT};`, 6, (el, lat, lon) =>
     L.marker([lat, lon], {icon:vigIcon}).bindPopup(vigPopup(el.tags?.['surveillance:type'] || el.tags?.surveillance, el.tags?.operator)));
