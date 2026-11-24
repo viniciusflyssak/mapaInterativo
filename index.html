@@ -252,7 +252,7 @@ const LAYERS = [
 ];
 const state = store.get('mirante:layers', {});
 const osmCluster = L.markerClusterGroup({chunkedLoading:true, maxClusterRadius:55, showCoverageOnHover:false, iconCreateFunction:c => L.divIcon({html:`<div><span>${c.getChildCount()}</span></div>`, className:'marker-cluster osm-cluster', iconSize:[40,40]})});
-const osmLive = L.layerGroup();
+const osmLive = L.markerClusterGroup({chunkedLoading:true, maxClusterRadius:55, showCoverageOnHover:false, iconCreateFunction:c => L.divIcon({html:`<div><span>${c.getChildCount()}</span></div>`, className:'marker-cluster osm-cluster', iconSize:[40,40]})});
 LAYERS.forEach(l => { if (l.id in state) l.on = state[l.id]; l.group = l.id === 'cam'
   ? L.markerClusterGroup({chunkedLoading:true, maxClusterRadius:50, showCoverageOnHover:false})
   : l.id === 'osm' ? L.featureGroup([osmCluster, osmLive]) : L.layerGroup(); });
@@ -279,15 +279,50 @@ const fmt = n => n.toLocaleString('pt-BR');
 let camsLoaded = false, camsAll = [], camFilter = store.get('mirante:camfilter', 'all');
 const camIcon = L.divIcon({className:'', html:`<div class="cam">${CAM_SVG}</div>`, iconSize:[22,22]});
 const camIconV = L.divIcon({className:'', html:`<div class="cam v">${CAM_SVG}</div>`, iconSize:[22,22]});
+const camPass = c => camFilter === 'video' ? c[5] : camFilter === 'photo' ? !c[5] && c[3] : true;
+let camShown = [];
 function renderCams(){
   const l = byId.cam; l.group.clearLayers();
-  const list = camsAll.filter(c => camFilter === 'video' ? c[5] : camFilter === 'photo' ? !c[5] && c[3] : true);
-  l.group.addLayers(list.map(c => L.marker([c[0], c[1]], {icon:c[5] ? camIconV : camIcon, title:c[2]}).on('click', () => showCam(c))));
-  const label = camFilter === 'video' ? ' com vídeo' : camFilter === 'photo' ? ' só foto' : '';
-  setStatus('cam', fmt(list.length) + label);
+  camShown = [...camsAll, ...windyCams.values()].filter(camPass);
+  l.group.addLayers(camShown.map(c => L.marker([c[0], c[1]], {icon:c[5] ? camIconV : camIcon, title:c[2]}).on('click', () => showCam(c))));
+  camStatus();
   document.querySelectorAll('#camfilter button').forEach(bt => bt.setAttribute('aria-pressed', bt.dataset.f === camFilter));
 }
 document.querySelectorAll('#camfilter button').forEach(bt => bt.onclick = () => { camFilter = bt.dataset.f; store.set('mirante:camfilter', camFilter); if (camsLoaded) renderCams(); });
+function camStatus(){
+  if (!camsLoaded) return;
+  const b = map.getBounds(), n = camShown.filter(c => b.contains([c[0], c[1]])).length;
+  const label = camFilter === 'video' ? ' com vídeo' : camFilter === 'photo' ? ' só foto' : '';
+  setStatus('cam', n ? `${fmt(n)}${label} na tela` : `nenhuma nesta área · ${fmt(camShown.length)} no mundo`, !n);
+}
+map.on('moveend', () => { if (byId.cam.on) { camStatus(); loadWindy(); } });
+
+/* Webcams da Windy (opcional): chave gratuita guardada só neste navegador */
+const windyCams = new Map(); let windyBusy = false, windyLastKey = '';
+const windyKey = () => store.get('mirante:windy', '');
+async function loadWindy(){
+  const key = windyKey(); if (!key || windyBusy || !byId.cam.on || map.getZoom() < 5) return;
+  const c = map.getCenter(), radius = Math.min(250, Math.ceil(c.distanceTo(map.getBounds().getNorthEast()) / 1000));
+  const areaKey = `${c.lat.toFixed(1)},${c.lng.toFixed(1)},${radius}`; if (areaKey === windyLastKey) return;
+  windyBusy = true; windyLastKey = areaKey; let added = 0;
+  try {
+    for (let offset = 0; offset < 200; offset += 50) {
+      const r = await fetch(`https://api.windy.com/webcams/api/v3/webcams?nearby=${c.lat.toFixed(4)},${(((c.lng + 540) % 360) - 180).toFixed(4)},${radius}&limit=50&offset=${offset}&include=location,images,player`, {headers:{'x-windy-api-key':key}});
+      if (r.status === 401 || r.status === 403) { say('Chave da Windy recusada. Confira em ⓘ.', 5000); break; }
+      if (!r.ok) break;
+      const d = await r.json(), list = d.webcams || [];
+      for (const w of list) {
+        const loc = w.location || {}, img = w.images?.current?.preview || w.images?.current?.thumbnail || '', pl = w.player || {};
+        const live = pl.live || pl.day || '';
+        if (loc.latitude == null || (!img && !live)) continue;
+        if (!windyCams.has(w.webcamId)) added++;
+        windyCams.set(w.webcamId, [loc.latitude, loc.longitude, w.title || 'Sem nome', img, 'Windy Webcams', live ? 'iframe:' + live : '']);
+      }
+      if (list.length < 50) break;
+    }
+  } catch(e){} finally { windyBusy = false; }
+  if (added) renderCams();
+}
 function camFilterVisible(){ $('#camfilter').classList.toggle('show', byId.cam.on); }
 async function loadCams(){
   camFilterVisible();
@@ -295,8 +330,8 @@ async function loadCams(){
   setStatus('cam', '…');
   try {
     camsAll = await getJSON('data/cameras.json', {cache:'no-cache'});
-    if (!camsAll.length) { setStatus('cam', 'aguardando Action', true); return; }
-    camsLoaded = true; renderCams();
+    if (!camsAll.length && !windyKey()) { setStatus('cam', 'aguardando Action', true); return; }
+    camsLoaded = true; renderCams(); loadWindy();
   } catch(e){ setStatus('cam', 'erro', true); }
 }
 
@@ -490,7 +525,7 @@ async function loadEvents(){
 /* OpenStreetMap via Overpass: câmeras mapeadas pela comunidade e usinas */
 const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter',
   'https://maps.mail.ru/osm/tools/overpass/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
-let ovIdx = 0, ovQueue = Promise.resolve();
+let ovIdx = 0, ovQueue = Promise.resolve(), ovFull = false;
 const ovLast = {};
 async function overpassFetch(q){
   let lastErr;
@@ -510,7 +545,7 @@ function overpass(id, query, minZoom, draw){
   if (map.getZoom() < minZoom) { (id === 'osm' ? osmLive : l.group).clearLayers(); ovLast[id] = null; if (id !== 'osm') setStatus(id, 'aproxime o mapa'); return; }
   if (id === 'osm' && latamCovers(map.getBounds())) { setStatus(id, osmStatus()); return; }
   const view = map.getBounds();
-  if (ovLast[id] && ovLast[id].contains(view)) return;          // já temos essa área
+  if (ovLast[id] && ovLast[id].contains(view) && !(id === 'osm' && ovFull)) { if (id === 'osm') setStatus(id, osmStatus()); return; }  // já temos essa área
   const b = view.pad(0.3), bbox = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()].map(n => n.toFixed(4)).join(',');
   setStatus(id, '…');
   ovQueue = ovQueue.then(async () => {                            // uma consulta por vez, para não ser bloqueado
@@ -519,6 +554,7 @@ function overpass(id, query, minZoom, draw){
       const target = id === 'osm' ? osmLive : l.group; target.clearLayers(); ovLast[id] = b;
       d.elements.forEach(el => { const lat = el.lat ?? el.center?.lat, lon = el.lon ?? el.center?.lon; if (lat != null && !(id === 'osm' && inLatam(lat, lon))) draw(el, lat, lon).addTo(target); });
       setStatus(id, id === 'osm' ? osmStatus() : fmt(d.elements.length));
+      if (id === 'osm') ovFull = d.elements.length >= OSM_LIMIT;
     } catch(e){ setStatus(id, 'servidores OSM ocupados, tente de novo', true); }
   });
 }
@@ -528,7 +564,14 @@ const LATAM = L.latLngBounds([-56.5, -118.5], [33, -33]);
 const inLatam = (lat, lon) => LATAM.contains([lat, lon]);
 const latamCovers = b => LATAM.contains(b);
 let osmStatic = 0, osmLoaded = false;
-const osmStatus = () => `${fmt(osmStatic)} na América Latina` + (map.getZoom() >= 9 && !latamCovers(map.getBounds()) ? ` + ${fmt(osmLive.getLayers().length)} aqui` : map.getZoom() < 9 && !latamCovers(map.getBounds()) ? ' · fora dela, aproxime' : '');
+const OSM_LIMIT = 6000, vigIcon = L.divIcon({className:'', html:'<div class="vig"></div>', iconSize:[14,14]});
+function osmStatus(){
+  const b = map.getBounds(); let n = 0;
+  osmCluster.eachLayer(m => { if (b.contains(m.getLatLng())) n++; });
+  const live = osmLive.getLayers().length;
+  if (map.getZoom() < 6 && !latamCovers(b)) return `${fmt(n)} na tela · aproxime para buscar no resto do mundo`;
+  return `${fmt(n + live)} na tela` + (live >= OSM_LIMIT ? ' (limite; aproxime para ver todas)' : '');
+}
 async function loadOsm(){
   if (!osmLoaded) {
     osmLoaded = true; setStatus('osm', '…');
@@ -538,9 +581,8 @@ async function loadOsm(){
     osmCluster.addLayers(antt.map(a => L.marker([a[0], a[1]], {icon:iconA}).bindPopup(`<b>Câmera de rodovia federal</b><br>Rodovia: ${esc(a[2] || NA)} · km ${esc(a[3] || NA)}<br>Município: ${esc(a[4] || NA)}${a[5] ? ' (' + esc(a[5]) + ')' : ''}<br>Concessionária: ${esc(a[6] || NA)}<br>Sentido: ${esc(a[7] || NA)}<br><small>Dados abertos da ANTT. Mostra onde a câmera está; a imagem não é pública.</small>`)));
     osmStatic = osm.length + antt.length;
   }
-  overpass('osm', 'node["man_made"="surveillance"](BBOX);out 4000;', 9, (el, lat, lon) =>
-    mk([lat, lon], {shape:'square', radius:5, color:'#0b0f14', weight:1, fillColor:'#c77dff', fillOpacity:.95})
-      .bindPopup(vigPopup(el.tags?.['surveillance:type'] || el.tags?.surveillance, el.tags?.operator)));
+  overpass('osm', `node["man_made"="surveillance"](BBOX);out ${OSM_LIMIT};`, 6, (el, lat, lon) =>
+    L.marker([lat, lon], {icon:vigIcon}).bindPopup(vigPopup(el.tags?.['surveillance:type'] || el.tags?.surveillance, el.tags?.operator)));
   setStatus('osm', osmStatus());
 }
 const FUEL = {Solar:['Solar','#ffd166'], Wind:['Eólica','#90e0ef'], Hydro:['Hidrelétrica','#4cc9f0'], Gas:['Gás','#f4a261'], Coal:['Carvão','#8d99ae'],
@@ -728,9 +770,11 @@ const loadWar = () => staticLayer('war', 'frontline.json', (d, g) => {
 
 /* Créditos */
 $('#infobtn').onclick = () => { clearInterval(camTimer); openSheet(`<h2>Fontes</h2><div class="meta">Dados públicos e gratuitos, usados para fins não comerciais.</div>
-  <p style="font-size:14px">Câmeras: Powered by TfL Open Data · Digitraffic/Fintraffic (CC BY 4.0) · NYC DOT · Caltrans · DriveBC · NZTA · Iowa DOT<br>Vigilância: OpenStreetMap (ODbL) · ANTT, CFTV das rodovias federais (dados abertos)<br>
+  <p style="font-size:14px">Câmeras: Windy Webcams (com chave do usuário) · Powered by TfL Open Data · Digitraffic/Fintraffic (CC BY 4.0) · NYC DOT · Caltrans · DriveBC · NZTA · Iowa DOT<br>Vigilância: OpenStreetMap (ODbL) · ANTT, CFTV das rodovias federais (dados abertos)<br>
   Voos: airplanes.live · adsb.lol · OpenSky Network<br>Navios: AISStream · Digitraffic (CC BY 4.0)<br>Satélites: CelesTrak · Terremotos: USGS · Eventos: NASA EONET<br>
-  Cabos: TeleGeography Submarine Cable Map · Aeroportos: OurAirports · Frente: DeepStateMap<br>Usinas: WRI Global Power Plant Database (CC BY 4.0) · Mapa e imagens de satélite: Esri, Maxar, Earthstar Geographics, OpenStreetMap · Busca e camadas OSM: Nominatim, Overpass · Fuso por ponto: Open-Meteo</p>`); };
+  Cabos: TeleGeography Submarine Cable Map · Aeroportos: OurAirports · Frente: DeepStateMap<br>Usinas: WRI Global Power Plant Database (CC BY 4.0) · Mapa e imagens de satélite: Esri, Maxar, Earthstar Geographics, OpenStreetMap · Busca e camadas OSM: Nominatim, Overpass · Fuso por ponto: Open-Meteo</p><h2 style="margin-top:16px">Webcams da Windy (opcional)</h2><div class="meta">Traz webcams com imagem de praias, cidades e estradas do mundo todo, incluindo a América do Sul. Crie uma chave gratuita em api.windy.com (produto Webcams) e cole aqui. Ela fica salva só neste navegador.</div>
+  <form id="windyForm" class="row"><input id="windyIn" placeholder="Chave da Windy" autocomplete="off" style="flex:1;min-width:0;background:#0b0f14;border:1px solid var(--line);border-radius:10px;color:var(--ink);font:16px Inter,sans-serif;padding:10px" value="${esc(windyKey())}"><button>Salvar</button></form>`);
+  $('#windyForm').onsubmit = e => { e.preventDefault(); store.set('mirante:windy', $('#windyIn').value.trim()); windyLastKey = ''; say($('#windyIn').value.trim() ? 'Chave salva. Buscando webcams…' : 'Chave removida', 3000); loadWindy(); }; };
 
 const LOADERS = {cam:loadCams, fly:loadFlights, ship:loadShips, quake:loadQuakes, evt:loadEvents, osm:loadOsm, pow:loadPow, sat:loadSats, stl:loadSats, cab:loadCab, apt:loadApt, war:loadWar, tz:loadTz};
 function refresh(l){ if (l.on) LOADERS[l.id](); }
